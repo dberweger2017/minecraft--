@@ -420,10 +420,10 @@ void Renderer::createFramebuffers() {
 
 void Renderer::createUniformBuffers() {
     VkDeviceSize bufferSize = sizeof(UniformBufferObject);
-    uniformBuffers.resize(2); 
-    uniformBuffersMemory.resize(2);
-    uniformBuffersMapped.resize(2);
-    for (size_t i = 0; i < 2; i++) {
+    uniformBuffers.resize(kMaxFramesInFlight); 
+    uniformBuffersMemory.resize(kMaxFramesInFlight);
+    uniformBuffersMapped.resize(kMaxFramesInFlight);
+    for (size_t i = 0; i < kMaxFramesInFlight; i++) {
         createBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, uniformBuffers[i], uniformBuffersMemory[i]);
         vkMapMemory(device, uniformBuffersMemory[i], 0, bufferSize, 0, &uniformBuffersMapped[i]);
     }
@@ -432,27 +432,27 @@ void Renderer::createUniformBuffers() {
 void Renderer::createDescriptorPool() {
     VkDescriptorPoolSize poolSize{};
     poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    poolSize.descriptorCount = 2;
+    poolSize.descriptorCount = kMaxFramesInFlight;
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     poolInfo.poolSizeCount = 1;
     poolInfo.pPoolSizes = &poolSize;
-    poolInfo.maxSets = 2;
+    poolInfo.maxSets = kMaxFramesInFlight;
     if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS)
         throw std::runtime_error("failed to create descriptor pool!");
 }
 
 void Renderer::createDescriptorSets() {
-    std::vector<VkDescriptorSetLayout> layouts(2, descriptorSetLayout);
+    std::vector<VkDescriptorSetLayout> layouts(kMaxFramesInFlight, descriptorSetLayout);
     VkDescriptorSetAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
     allocInfo.descriptorPool = descriptorPool;
-    allocInfo.descriptorSetCount = 2;
+    allocInfo.descriptorSetCount = kMaxFramesInFlight;
     allocInfo.pSetLayouts = layouts.data();
-    descriptorSets.resize(2);
+    descriptorSets.resize(kMaxFramesInFlight);
     vkAllocateDescriptorSets(device, &allocInfo, descriptorSets.data());
 
-    for (size_t i = 0; i < 2; i++) {
+    for (size_t i = 0; i < kMaxFramesInFlight; i++) {
         VkDescriptorBufferInfo bufferInfo{};
         bufferInfo.buffer = uniformBuffers[i];
         bufferInfo.offset = 0;
@@ -479,7 +479,7 @@ void Renderer::createCommandPool() {
 }
 
 void Renderer::createCommandBuffers() {
-    commandBuffers.resize(2);
+    commandBuffers.resize(kMaxFramesInFlight);
     VkCommandBufferAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     allocInfo.commandPool = commandPool;
@@ -490,15 +490,15 @@ void Renderer::createCommandBuffers() {
 }
 
 void Renderer::createSyncObjects() {
-    imageAvailableSemaphores.resize(2);
-    renderFinishedSemaphores.resize(2);
-    inFlightFences.resize(2);
+    imageAvailableSemaphores.resize(kMaxFramesInFlight);
+    renderFinishedSemaphores.resize(kMaxFramesInFlight);
+    inFlightFences.resize(kMaxFramesInFlight);
     VkSemaphoreCreateInfo semaphoreInfo{};
     semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
     VkFenceCreateInfo fenceInfo{};
     fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-    for (size_t i = 0; i < 2; i++) {
+    for (size_t i = 0; i < kMaxFramesInFlight; i++) {
         vkCreateSemaphore(device, &semaphoreInfo, nullptr, &imageAvailableSemaphores[i]);
         vkCreateSemaphore(device, &semaphoreInfo, nullptr, &renderFinishedSemaphores[i]);
         vkCreateFence(device, &fenceInfo, nullptr, &inFlightFences[i]);
@@ -550,7 +550,7 @@ void Renderer::drawFrame(const World& world, const Camera& camera, glm::vec3 sun
     presentInfo.pImageIndices = &imageIndex;
     vkQueuePresentKHR(presentQueue, &presentInfo);
 
-    currentFrame = (currentFrame + 1) % 2;
+    currentFrame = (currentFrame + 1) % kMaxFramesInFlight;
 }
 
 void Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex, const World& world) {
@@ -756,7 +756,7 @@ void Renderer::cleanup() {
     }
     vkDestroyDescriptorPool(device, descriptorPool, nullptr);
     vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
-    for (size_t i = 0; i < 2; i++) {
+    for (size_t i = 0; i < kMaxFramesInFlight; i++) {
         vkDestroySemaphore(device, renderFinishedSemaphores[i], nullptr);
         vkDestroySemaphore(device, imageAvailableSemaphores[i], nullptr);
         vkDestroyFence(device, inFlightFences[i], nullptr);
