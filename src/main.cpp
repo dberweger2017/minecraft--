@@ -39,8 +39,8 @@ struct PushConstants {
 struct SquareState {
   float x = 0.0f;
   float y = 0.0f;
-  float vx = 0.72f;
-  float vy = 0.54f;
+  float vx = 1.44f;
+  float vy = 1.08f;
   float halfSize = 0.18f;
 };
 
@@ -48,6 +48,7 @@ struct SquareState {
 constexpr const char* kPortabilitySubsetExtensionName = "VK_KHR_portability_subset";
 #endif
 
+// TODO: refactor this name... HelloApp is copied from the Vulkan tutorial
 class HelloApp {
 public:
   void run(const std::optional<double> autoCloseAfterSeconds) {
@@ -104,6 +105,7 @@ private:
   }
 
   void initWindow() {
+    std::cout << "[Init] Setting up GLFW window... (TODO: add fullscreen toggle)" << std::endl;
     if (glfwInit() != GLFW_TRUE) {
       throw std::runtime_error("Failed to initialize GLFW.");
     }
@@ -122,6 +124,7 @@ private:
   }
 
   void initVulkan() {
+    std::cout << "[Init] Booting Vulkan..." << std::endl;
     if (glfwVulkanSupported() != GLFW_TRUE) {
       throw std::runtime_error("GLFW did not find a working Vulkan loader.");
     }
@@ -556,6 +559,8 @@ private:
   }
 
   void createGraphicsPipeline() {
+    // TODO(Minecraft): eventually we'll need multiple pipelines for translucent blocks (water/glass)
+    // For now just testing the shader loading with a placeholder square
     const std::vector<char> vertexShaderCode = readFile(shaderPath("square.vert.spv"));
     const std::vector<char> fragmentShaderCode = readFile(shaderPath("square.frag.spv"));
 
@@ -720,6 +725,8 @@ private:
     const double closeAt = autoCloseAfterSeconds.has_value() ? glfwGetTime() + *autoCloseAfterSeconds : 0.0;
     auto lastFrameTime = std::chrono::steady_clock::now();
 
+    // std::cout << "Entering main game loop" << std::endl;
+
     while (glfwWindowShouldClose(window_) == GLFW_FALSE) {
       glfwPollEvents();
 
@@ -740,6 +747,10 @@ private:
   }
 
   void updateSquare(const float deltaTime) {
+    // printf("dt: %f\n", deltaTime); // keep this for physics debugging later
+
+    // TODO: This is just a placeholder bouncing DVD logo thing.
+    // Eventually rip this out and replace with player movement and chunk map updates.
     if (deltaTime <= 0.0f || swapChainExtent_.width == 0 || swapChainExtent_.height == 0) {
       return;
     }
