@@ -120,6 +120,7 @@ struct CameraState {
   glm::vec3 pos = glm::vec3(2.0f, 2.0f, 2.0f);
   glm::vec3 front = glm::vec3(-1.0f, -1.0f, -1.0f);
   glm::vec3 up = glm::vec3(0.0f, 0.0f, 1.0f);
+  glm::vec3 velocity = glm::vec3(0.0f);
   float yaw = -135.0f;
   float pitch = -35.0f;
   float lastX = 640, lastY = 360;
@@ -369,28 +370,57 @@ private:
 
   void processInput(const float deltaTime) {
     if (isPaused_) {
+      camera_.velocity = glm::vec3(0.0f); // Stop movement if paused
       return;
     }
 
-    const float cameraSpeed = 2.5f * deltaTime;
+    // Movement settings
+    const float acceleration = 50.0f;
+    const float friction = 8.0f;
+    const float maxSpeed = 10.0f;
+
+    glm::vec3 inputDir = glm::vec3(0.0f);
     if (glfwGetKey(window_, GLFW_KEY_W) == GLFW_PRESS) {
-      camera_.pos += cameraSpeed * camera_.front;
+      inputDir += camera_.front;
     }
     if (glfwGetKey(window_, GLFW_KEY_S) == GLFW_PRESS) {
-      camera_.pos -= cameraSpeed * camera_.front;
+      inputDir -= camera_.front;
     }
     if (glfwGetKey(window_, GLFW_KEY_A) == GLFW_PRESS) {
-      camera_.pos -= glm::normalize(glm::cross(camera_.front, camera_.up)) * cameraSpeed;
+      inputDir -= glm::normalize(glm::cross(camera_.front, camera_.up));
     }
     if (glfwGetKey(window_, GLFW_KEY_D) == GLFW_PRESS) {
-      camera_.pos += glm::normalize(glm::cross(camera_.front, camera_.up)) * cameraSpeed;
+      inputDir += glm::normalize(glm::cross(camera_.front, camera_.up));
     }
     if (glfwGetKey(window_, GLFW_KEY_SPACE) == GLFW_PRESS) {
-      camera_.pos += cameraSpeed * camera_.up;
+      inputDir += camera_.up;
     }
     if (glfwGetKey(window_, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) {
-      camera_.pos -= cameraSpeed * camera_.up;
+      inputDir -= camera_.up;
     }
+
+    if (glm::length(inputDir) > 0.0f) {
+      inputDir = glm::normalize(inputDir);
+      camera_.velocity += inputDir * acceleration * deltaTime;
+    }
+
+    // Apply friction
+    if (glm::length(camera_.velocity) > 0.0f) {
+      camera_.velocity -= camera_.velocity * friction * deltaTime;
+    }
+
+    // Limit max speed
+    if (glm::length(camera_.velocity) > maxSpeed) {
+      camera_.velocity = glm::normalize(camera_.velocity) * maxSpeed;
+    }
+
+    // Threshold to stop completely
+    if (glm::length(camera_.velocity) < 0.01f) {
+      camera_.velocity = glm::vec3(0.0f);
+    }
+
+    // Update position
+    camera_.pos += camera_.velocity * deltaTime;
   }
 
   void initWindow() {
