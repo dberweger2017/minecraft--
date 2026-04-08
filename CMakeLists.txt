@@ -171,6 +171,7 @@ target_link_libraries(minecraft_vk PRIVATE
 
 target_include_directories(minecraft_vk PRIVATE
   ${GLM_INCLUDE_DIR}
+  "${CMAKE_CURRENT_SOURCE_DIR}/src"
 )
 
 if(APPLE)

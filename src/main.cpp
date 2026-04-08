@@ -34,22 +34,7 @@ struct QueueFamilyIndices {
   }
 };
 
-enum class BlockType : uint8_t {
-  Air = 0,
-  Dirt = 1,
-  Grass = 2,
-  Stone = 3,
-  Wood = 4,
-  Leaves = 5
-};
-
-struct Block {
-  BlockType type = BlockType::Air;
-
-  [[nodiscard]] bool isSolid() const {
-    return type != BlockType::Air;
-  }
-};
+#include "World/Chunk.hpp"
 
 struct Vertex {
   glm::vec3 pos;
@@ -77,25 +62,6 @@ struct Vertex {
     attributeDescriptions[1].offset = offsetof(Vertex, color);
 
     return attributeDescriptions;
-  }
-};
-
-constexpr int CHUNK_SIZE = 16;
-
-struct Chunk {
-  Block blocks[CHUNK_SIZE][CHUNK_SIZE][CHUNK_SIZE];
-
-  void setBlock(const int x, const int y, const int z, const BlockType type) {
-    if (x >= 0 && x < CHUNK_SIZE && y >= 0 && y < CHUNK_SIZE && z >= 0 && z < CHUNK_SIZE) {
-      blocks[x][y][z].type = type;
-    }
-  }
-
-  [[nodiscard]] Block getBlock(const int x, const int y, const int z) const {
-    if (x >= 0 && x < CHUNK_SIZE && y >= 0 && y < CHUNK_SIZE && z >= 0 && z < CHUNK_SIZE) {
-      return blocks[x][y][z];
-    }
-    return {BlockType::Air};
   }
 };
 
@@ -472,15 +438,26 @@ private:
     createCommandBuffers();
     createSyncObjects();
 
-    // Place some blocks to inspect
+    // Layered Terrain Generation
     for (int x = 0; x < CHUNK_SIZE; ++x) {
       for (int y = 0; y < CHUNK_SIZE; ++y) {
-        chunk_.setBlock(x, y, 0, BlockType::Grass);
+        for (int z = 0; z < CHUNK_SIZE; ++z) {
+          BlockType type = BlockType::Air;
+
+          if (z == 0) {
+            type = BlockType::Bedrock;
+          } else if (z < 6) {
+            type = BlockType::Stone;
+          } else if (z < 15) {
+            type = BlockType::Dirt;
+          } else if (z == 15) {
+            type = BlockType::Grass;
+          }
+
+          chunk_.setBlock(x, y, z, type);
+        }
       }
     }
-    chunk_.setBlock(8, 8, 1, BlockType::Stone);
-    chunk_.setBlock(8, 8, 2, BlockType::Stone);
-    chunk_.setBlock(7, 8, 1, BlockType::Dirt);
 
     generateChunkMesh();
 
@@ -1304,6 +1281,8 @@ private:
       color = glm::vec3(0.55f, 0.27f, 0.07f);
     } else if (type == BlockType::Stone) {
       color = glm::vec3(0.5f, 0.5f, 0.5f);
+    } else if (type == BlockType::Bedrock) {
+      color = glm::vec3(0.1f, 0.1f, 0.1f);
     }
 
     const glm::vec3 positions[36] = {
