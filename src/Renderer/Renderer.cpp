@@ -1,4 +1,5 @@
 #include "Renderer.hpp"
+#include "Core/Logger.hpp"
 #include <iostream>
 #include <stdexcept>
 #include <set>
@@ -505,6 +506,11 @@ void Renderer::createSyncObjects() {
 }
 
 void Renderer::drawFrame(const World& world, const Camera& camera, glm::vec3 sunDirection, glm::vec3 sunColor) {
+    static int frameCount = 0;
+    if (++frameCount % 60 == 0) {
+        Logger::log("Rendering " + std::to_string(world.meshes.size()) + " chunk meshes");
+    }
+
     vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
     uint32_t imageIndex;
     VkResult result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);

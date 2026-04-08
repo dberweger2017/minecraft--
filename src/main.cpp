@@ -11,6 +11,7 @@
 #include "World/ChunkMesher.hpp"
 #include "Camera/Camera.hpp"
 #include "Renderer/Renderer.hpp"
+#include "Core/Logger.hpp"
 
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
@@ -69,6 +70,11 @@ private:
                 updateWorld();
             }
 
+            static int frameCount = 0;
+            if (++frameCount % 60 == 0) {
+                Logger::log("Camera Position: (" + std::to_string(camera.pos.x) + ", " + std::to_string(camera.pos.y) + ", " + std::to_string(camera.pos.z) + ")");
+            }
+
             // 20 minute day cycle (1200 seconds)
             constexpr float dayLength = 1200.0f;
             float dayProgress = fmod(totalTime, dayLength) / dayLength;
@@ -102,10 +108,14 @@ private:
         for (int x = playerChunkX - radius; x <= playerChunkX + radius; ++x) {
             for (int y = playerChunkY - radius; y <= playerChunkY + radius; ++y) {
                 if (world.chunks.find({x, y}) == world.chunks.end()) {
+                    Logger::log("Generating chunk at (" + std::to_string(x) + ", " + std::to_string(y) + ")");
                     world.addChunk(x, y);
                     auto vertices = ChunkMesher::generateMesh(*world.getChunk(x, y), x, y);
                     if (!vertices.empty()) {
+                        Logger::log("Meshing chunk (" + std::to_string(x) + ", " + std::to_string(y) + ") - " + std::to_string(vertices.size()) + " vertices");
                         world.meshes[{x, y}] = renderer->createChunkMesh(vertices);
+                    } else {
+                        Logger::log("Warning: Chunk at (" + std::to_string(x) + ", " + std::to_string(y) + ") produced empty mesh");
                     }
                 }
             }
