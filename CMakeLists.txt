@@ -22,6 +22,18 @@ if(APPLE)
   )
 endif()
 
+find_path(GLM_INCLUDE_DIR
+  NAMES glm/glm.hpp
+  HINTS
+    /opt/homebrew
+    /usr/local
+  PATH_SUFFIXES include
+)
+
+if(NOT GLM_INCLUDE_DIR)
+  message(FATAL_ERROR "GLM was not found. Install it with Homebrew or point CMake at your GLM package.")
+endif()
+
 set(GLFW_TARGET "")
 find_package(glfw3 CONFIG QUIET)
 if(TARGET glfw)
@@ -131,6 +143,10 @@ target_compile_definitions(minecraft_vk PRIVATE
 target_link_libraries(minecraft_vk PRIVATE
   ${GLFW_TARGET}
   ${VULKAN_TARGET}
+)
+
+target_include_directories(minecraft_vk PRIVATE
+  ${GLM_INCLUDE_DIR}
 )
 
 if(APPLE)
