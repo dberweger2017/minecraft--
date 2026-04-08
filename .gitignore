@@ -1,0 +1,25 @@
+# macOS
+.DS_Store
+
+# CMake out-of-source builds
+build/
+build-*/
+cmake-build-*/
+compile_commands.json
+
+# CMake in-source artifacts
+CMakeCache.txt
+CMakeFiles/
+CTestTestfile.cmake
+Makefile
+cmake_install.cmake
+install_manifest.txt
+Testing/
+
+# Local user-specific CMake config
+CMakeUserPresets.json
+
+# Xcode user data
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
