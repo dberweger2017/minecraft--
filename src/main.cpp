@@ -47,6 +47,16 @@ struct UniformBufferObject {
   alignas(16) glm::mat4 proj;
 };
 
+struct CameraState {
+  glm::vec3 pos = glm::vec3(2.0f, 2.0f, 2.0f);
+  glm::vec3 front = glm::vec3(-1.0f, -1.0f, -1.0f);
+  glm::vec3 up = glm::vec3(0.0f, 0.0f, 1.0f);
+  float yaw = -135.0f;
+  float pitch = -35.0f;
+  float lastX = 640, lastY = 360;
+  bool firstMouse = true;
+};
+
 struct SquareState {
   float x = 0.0f;
   float y = 0.0f;
@@ -118,12 +128,95 @@ private:
   std::vector<VkFence> imagesInFlight_;
   size_t currentFrame_ = 0;
 
+  bool isPaused_ = false;
+
+  void togglePause() {
+    isPaused_ = !isPaused_;
+    if (isPaused_) {
+      glfwSetInputMode(window_, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+    } else {
+      glfwSetInputMode(window_, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+      camera_.firstMouse = true; // Reset mouse to avoid jumps
+    }
+  }
+
   SquareState square_{};
+  CameraState camera_{};
 
   static void framebufferResizeCallback(GLFWwindow* window, int, int) {
     auto* app = reinterpret_cast<HelloApp*>(glfwGetWindowUserPointer(window));
     if (app != nullptr) {
       app->framebufferResized_ = true;
+    }
+  }
+
+  static void mouseCallback(GLFWwindow* window, const double xpos, const double ypos) {
+    auto* app = reinterpret_cast<HelloApp*>(glfwGetWindowUserPointer(window));
+    if (app == nullptr || app->isPaused_) {
+      return;
+    }
+
+    if (app->camera_.firstMouse) {
+      app->camera_.lastX = static_cast<float>(xpos);
+      app->camera_.lastY = static_cast<float>(ypos);
+      app->camera_.firstMouse = false;
+    }
+
+    float xoffset = static_cast<float>(xpos) - app->camera_.lastX;
+    float yoffset = app->camera_.lastY - static_cast<float>(ypos);
+    app->camera_.lastX = static_cast<float>(xpos);
+    app->camera_.lastY = static_cast<float>(ypos);
+
+    constexpr float sensitivity = 0.1f;
+    xoffset *= sensitivity;
+    yoffset *= sensitivity;
+
+    app->camera_.yaw += xoffset;
+    app->camera_.pitch += yoffset;
+
+    app->camera_.pitch = std::clamp(app->camera_.pitch, -89.0f, 89.0f);
+
+    glm::vec3 direction;
+    direction.x = std::cos(glm::radians(app->camera_.yaw)) * std::cos(glm::radians(app->camera_.pitch));
+    direction.z = std::sin(glm::radians(app->camera_.pitch));
+    direction.y = std::sin(glm::radians(app->camera_.yaw)) * std::cos(glm::radians(app->camera_.pitch));
+    app->camera_.front = glm::normalize(direction);
+  }
+
+  static void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
+    auto* app = reinterpret_cast<HelloApp*>(glfwGetWindowUserPointer(window));
+    if (app == nullptr) {
+      return;
+    }
+
+    if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
+      app->togglePause();
+    }
+  }
+
+  void processInput(const float deltaTime) {
+    if (isPaused_) {
+      return;
+    }
+
+    const float cameraSpeed = 2.5f * deltaTime;
+    if (glfwGetKey(window_, GLFW_KEY_W) == GLFW_PRESS) {
+      camera_.pos += cameraSpeed * camera_.front;
+    }
+    if (glfwGetKey(window_, GLFW_KEY_S) == GLFW_PRESS) {
+      camera_.pos -= cameraSpeed * camera_.front;
+    }
+    if (glfwGetKey(window_, GLFW_KEY_A) == GLFW_PRESS) {
+      camera_.pos -= glm::normalize(glm::cross(camera_.front, camera_.up)) * cameraSpeed;
+    }
+    if (glfwGetKey(window_, GLFW_KEY_D) == GLFW_PRESS) {
+      camera_.pos += glm::normalize(glm::cross(camera_.front, camera_.up)) * cameraSpeed;
+    }
+    if (glfwGetKey(window_, GLFW_KEY_SPACE) == GLFW_PRESS) {
+      camera_.pos += cameraSpeed * camera_.up;
+    }
+    if (glfwGetKey(window_, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) {
+      camera_.pos -= cameraSpeed * camera_.up;
     }
   }
 
@@ -144,6 +237,10 @@ private:
 
     glfwSetWindowUserPointer(window_, this);
     glfwSetFramebufferSizeCallback(window_, framebufferResizeCallback);
+    glfwSetCursorPosCallback(window_, mouseCallback);
+    glfwSetKeyCallback(window_, keyCallback);
+
+    glfwSetInputMode(window_, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
   }
 
   void initVulkan() {
@@ -1025,6 +1122,7 @@ private:
         std::min(std::chrono::duration<float>(now - lastFrameTime).count(), 0.05f);
       lastFrameTime = now;
 
+      processInput(deltaTime);
       updateSquare(deltaTime);
       drawFrame();
 
@@ -1159,13 +1257,13 @@ private:
     float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
 
     UniformBufferObject ubo{};
-    ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-    ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    ubo.model = glm::mat4(1.0f);
+    ubo.view = glm::lookAt(camera_.pos, camera_.pos + camera_.front, camera_.up);
     ubo.proj = glm::perspective(
       glm::radians(45.0f),
       static_cast<float>(swapChainExtent_.width) / static_cast<float>(swapChainExtent_.height),
       0.1f,
-      10.0f);
+      100.0f);
     ubo.proj[1][1] *= -1; // Flip Y for Vulkan
 
     std::memcpy(uniformBuffersMapped_[currentImage], &ubo, sizeof(ubo));
