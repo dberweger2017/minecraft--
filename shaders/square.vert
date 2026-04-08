@@ -4,8 +4,8 @@ layout(binding = 0) uniform UniformBufferObject {
     mat4 model;
     mat4 view;
     mat4 proj;
-    vec3 sunDirection;
-    vec3 sunColor;
+    vec4 sunDirection;
+    vec4 sunColor;
 } ubo;
 
 layout(location = 0) in vec3 inPosition;
@@ -21,6 +21,6 @@ void main() {
     gl_Position = ubo.proj * ubo.view * ubo.model * vec4(inPosition, 1.0);
     fragColor = inColor;
     fragNormal = inNormal;
-    sunDir = ubo.sunDirection;
-    sunCol = ubo.sunColor;
+    sunDir = ubo.sunDirection.xyz;
+    sunCol = ubo.sunColor.rgb;
 }

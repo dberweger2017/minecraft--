@@ -8,6 +8,10 @@ layout(location = 3) in vec3 sunCol;
 layout(location = 0) out vec4 outColor;
 
 void main() {
+    // Debug: Full Bright
+    outColor = vec4(fragColor, 1.0);
+    return;
+
     // Ambient light
     float ambientStrength = 0.3;
     vec3 ambient = ambientStrength * sunCol;
