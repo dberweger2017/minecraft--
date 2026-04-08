@@ -155,6 +155,8 @@ target_link_libraries(imgui PUBLIC ${GLFW_TARGET} ${VULKAN_TARGET})
 
 add_executable(minecraft_vk
   src/main.cpp
+  src/World/ChunkMesher.cpp
+  src/Renderer/Renderer.cpp
 )
 
 add_dependencies(minecraft_vk compile_shaders)
