@@ -22,8 +22,8 @@ struct UniformBufferObject {
     alignas(16) glm::mat4 model;
     alignas(16) glm::mat4 view;
     alignas(16) glm::mat4 proj;
-    alignas(16) glm::vec3 sunDirection;
-    alignas(16) glm::vec3 sunColor;
+    alignas(16) glm::vec4 sunDirection;
+    alignas(16) glm::vec4 sunColor;
 };
 
 struct QueueFamilyIndices {
@@ -601,8 +601,8 @@ void Renderer::updateUniformBuffer(uint32_t currentImage, const Camera& camera, 
     ubo.view = camera.getViewMatrix();
     ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 1000.0f);
     ubo.proj[1][1] *= -1;
-    ubo.sunDirection = sunDirection;
-    ubo.sunColor = sunColor;
+    ubo.sunDirection = glm::vec4(sunDirection, 1.0f);
+    ubo.sunColor = glm::vec4(sunColor, 1.0f);
     memcpy(uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
 }
 
