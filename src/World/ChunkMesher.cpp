@@ -19,7 +19,7 @@ static void addCulledCubeToMesh(const float x, const float y, const float z, con
     const float y0 = y - 0.5f, y1 = y + 0.5f;
     const float z0 = z - 0.5f, z1 = z + 0.5f;
 
-    // Neighbors order: -X, +X, -Y, +Y, -Z, +Z
+    // Neighbors order: 0:-X, 1:+X, 2:-Y, 3:+Y, 4:-Z, 5:+Z
     
     // Back (-Y)
     if (!neighbors[2]) {
@@ -30,19 +30,19 @@ static void addCulledCubeToMesh(const float x, const float y, const float z, con
     // Front (+Y)
     if (!neighbors[3]) {
         glm::vec3 n = {0, 1, 0};
-        vertices.push_back({{x0, y1, z0}, color, n}); vertices.push_back({{x1, y1, z1}, color, n}); vertices.push_back({{x1, y1, z0}, color, n});
         vertices.push_back({{x0, y1, z0}, color, n}); vertices.push_back({{x0, y1, z1}, color, n}); vertices.push_back({{x1, y1, z1}, color, n});
+        vertices.push_back({{x1, y1, z1}, color, n}); vertices.push_back({{x1, y1, z0}, color, n}); vertices.push_back({{x0, y1, z0}, color, n});
     }
     // Left (-X)
     if (!neighbors[0]) {
         glm::vec3 n = {-1, 0, 0};
-        vertices.push_back({{x0, y1, z1}, color, n}); vertices.push_back({{x0, y1, z0}, color, n}); vertices.push_back({{x0, y0, z0}, color, n});
         vertices.push_back({{x0, y0, z0}, color, n}); vertices.push_back({{x0, y0, z1}, color, n}); vertices.push_back({{x0, y1, z1}, color, n});
+        vertices.push_back({{x0, y1, z1}, color, n}); vertices.push_back({{x0, y1, z0}, color, n}); vertices.push_back({{x0, y0, z0}, color, n});
     }
     // Right (+X)
     if (!neighbors[1]) {
         glm::vec3 n = {1, 0, 0};
-        vertices.push_back({{x1, y1, z1}, color, n}); vertices.push_back({{x1, y0, z0}, color, n}); vertices.push_back({{x1, y1, z0}, color, n});
+        vertices.push_back({{x1, y0, z0}, color, n}); vertices.push_back({{x1, y1, z0}, color, n}); vertices.push_back({{x1, y1, z1}, color, n});
         vertices.push_back({{x1, y1, z1}, color, n}); vertices.push_back({{x1, y0, z1}, color, n}); vertices.push_back({{x1, y0, z0}, color, n});
     }
     // Bottom (-Z)
@@ -54,8 +54,8 @@ static void addCulledCubeToMesh(const float x, const float y, const float z, con
     // Top (+Z)
     if (!neighbors[5]) {
         glm::vec3 n = {0, 0, 1};
-        vertices.push_back({{x0, y0, z1}, color, n}); vertices.push_back({{x1, y1, z1}, color, n}); vertices.push_back({{x0, y1, z1}, color, n});
         vertices.push_back({{x0, y0, z1}, color, n}); vertices.push_back({{x1, y0, z1}, color, n}); vertices.push_back({{x1, y1, z1}, color, n});
+        vertices.push_back({{x1, y1, z1}, color, n}); vertices.push_back({{x0, y1, z1}, color, n}); vertices.push_back({{x0, y0, z1}, color, n});
     }
 }
 

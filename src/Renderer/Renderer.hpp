@@ -16,6 +16,7 @@ struct RendererInitInfo {
 
 class Renderer {
 public:
+    static constexpr int kMaxFramesInFlight = 2;
     Renderer(const RendererInitInfo& info);
     ~Renderer();
 
