@@ -9,7 +9,7 @@
 
 class Camera {
 public:
-    glm::vec3 pos = glm::vec3(8.0f, 8.0f, 30.0f);
+    glm::vec3 pos = glm::vec3(8.0f, 8.0f, 20.0f);
     glm::vec3 front = glm::vec3(0.0f, 0.0f, -1.0f);
     glm::vec3 up = glm::vec3(0.0f, 0.0f, 1.0f);
     glm::vec3 velocity = glm::vec3(0.0f);
@@ -17,10 +17,6 @@ public:
     float pitch = -45.0f;
     float lastX = 640.0f, lastY = 360.0f;
     bool firstMouse = true;
-
-    void setPosition(const glm::vec3& newPos) {
-        pos = newPos;
-    }
 
     void processInput(GLFWwindow* window, float deltaTime, bool isPaused) {
         if (isPaused) {

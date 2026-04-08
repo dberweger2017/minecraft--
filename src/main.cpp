@@ -37,6 +37,7 @@ struct QueueFamilyIndices {
 
 #include "World/Chunk.hpp"
 #include "World/Vertex.hpp"
+#include "World/World.hpp"
 #include "Camera/Camera.hpp"
 
 struct SwapChainSupportDetails {
@@ -109,9 +110,7 @@ private:
   VkCommandPool commandPool_ = VK_NULL_HANDLE;
   std::array<VkCommandBuffer, kMaxFramesInFlight> commandBuffers_{};
 
-  VkBuffer vertexBuffer_ = VK_NULL_HANDLE;
-  VkDeviceMemory vertexMemory_ = VK_NULL_HANDLE;
-  uint32_t vertexCount_ = 0;
+  World world_;
 
   std::vector<VkBuffer> uniformBuffers_;
   std::vector<VkDeviceMemory> uniformBuffersMemory_;
@@ -235,7 +234,6 @@ private:
   }
 
   Camera camera_{};
-  Chunk chunk_{};
 
   static void framebufferResizeCallback(GLFWwindow* window, int, int) {
     auto* app = reinterpret_cast<HelloApp*>(glfwGetWindowUserPointer(window));
@@ -321,49 +319,9 @@ private:
     createCommandBuffers();
     createSyncObjects();
 
-    // Layered Terrain Generation (0 down to -511)
-    for (int x = 0; x < CHUNK_WIDTH; ++x) {
-      for (int y = 0; y < CHUNK_WIDTH; ++y) {
-        for (int z = 0; z > -CHUNK_HEIGHT; --z) {
-          BlockType type = BlockType::Air;
-
-          if (z == 0) {
-            type = BlockType::Grass;
-          } else if (z > -4) {
-            type = BlockType::Dirt;
-          } else if (z > -511) {
-            type = BlockType::Stone;
-          } else if (z == -511) {
-            type = BlockType::Bedrock;
-          }
-
-          chunk_.setBlock(x, y, z, type);
-        }
-      }
-    }
-
-    generateChunkMesh();
-
-    spawnPlayer();
+    updateWorld();
 
     initImGui();
-  }
-
-  void spawnPlayer() {
-    // Start from the top (0) and look down for the first non-air block
-    int spawnX = CHUNK_WIDTH / 2;
-    int spawnY = CHUNK_WIDTH / 2;
-    int spawnZ = 0;
-
-    for (int z = 0; z > -CHUNK_HEIGHT; --z) {
-      if (chunk_.getBlock(spawnX, spawnY, z).type != BlockType::Air) {
-        spawnZ = z;
-        break;
-      }
-    }
-
-    // Spawn player 2 blocks above the highest block
-    camera_.setPosition(glm::vec3(static_cast<float>(spawnX), static_cast<float>(spawnY), static_cast<float>(spawnZ) + 2.0f));
   }
 
   void createInstance() {
@@ -1122,33 +1080,54 @@ private:
     }
   }
 
-  void generateChunkMesh() {
+  void updateWorld() {
+    const int playerChunkX = static_cast<int>(std::floor(camera_.pos.x / CHUNK_WIDTH));
+    const int playerChunkY = static_cast<int>(std::floor(camera_.pos.y / CHUNK_WIDTH));
+
+    constexpr int radius = 8;
+    for (int x = playerChunkX - radius; x <= playerChunkX + radius; ++x) {
+      for (int y = playerChunkY - radius; y <= playerChunkY + radius; ++y) {
+        if (world_.chunks.find({x, y}) == world_.chunks.end()) {
+          world_.addChunk(x, y);
+          generateChunkMesh(x, y);
+        }
+      }
+    }
+  }
+
+  void generateChunkMesh(int cx, int cy) {
+    Chunk* chunk = world_.getChunk(cx, cy);
+    if (!chunk) return;
+
     std::vector<Vertex> vertices;
 
     for (int x = 0; x < CHUNK_WIDTH; ++x) {
       for (int y = 0; y < CHUNK_WIDTH; ++y) {
         for (int z = 0; z > -CHUNK_HEIGHT; --z) {
-          const Block block = chunk_.getBlock(x, y, z);
+          const Block block = chunk->getBlock(x, y, z);
           if (block.isSolid()) {
             bool neighbors[6]; // -X, +X, -Y, +Y, -Z, +Z
-            neighbors[0] = chunk_.getBlock(x - 1, y, z).isSolid();
-            neighbors[1] = chunk_.getBlock(x + 1, y, z).isSolid();
-            neighbors[2] = chunk_.getBlock(x, y - 1, z).isSolid();
-            neighbors[3] = chunk_.getBlock(x, y + 1, z).isSolid();
-            neighbors[4] = chunk_.getBlock(x, y, z - 1).isSolid();
-            neighbors[5] = chunk_.getBlock(x, y, z + 1).isSolid();
+            neighbors[0] = chunk->getBlock(x - 1, y, z).isSolid();
+            neighbors[1] = chunk->getBlock(x + 1, y, z).isSolid();
+            neighbors[2] = chunk->getBlock(x, y - 1, z).isSolid();
+            neighbors[3] = chunk->getBlock(x, y + 1, z).isSolid();
+            neighbors[4] = chunk->getBlock(x, y, z - 1).isSolid();
+            neighbors[5] = chunk->getBlock(x, y, z + 1).isSolid();
 
-            addCulledCubeToMesh(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z), block.type, neighbors, vertices);
+            addCulledCubeToMesh(
+                static_cast<float>(cx * CHUNK_WIDTH + x),
+                static_cast<float>(cy * CHUNK_WIDTH + y),
+                static_cast<float>(z),
+                block.type, neighbors, vertices);
           }
         }
       }
     }
 
-    if (vertices.empty()) {
-      return;
-    }
+    if (vertices.empty()) return;
 
-    vertexCount_ = static_cast<uint32_t>(vertices.size());
+    ChunkMesh mesh{};
+    mesh.vertexCount = static_cast<uint32_t>(vertices.size());
     const VkDeviceSize bufferSize = sizeof(Vertex) * vertices.size();
 
     VkBuffer stagingBuffer = VK_NULL_HANDLE;
@@ -1169,13 +1148,15 @@ private:
       bufferSize,
       VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
       VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-      vertexBuffer_,
-      vertexMemory_);
+      mesh.vertexBuffer,
+      mesh.vertexMemory);
 
-    copyBuffer(stagingBuffer, vertexBuffer_, bufferSize);
+    copyBuffer(stagingBuffer, mesh.vertexBuffer, bufferSize);
 
     vkDestroyBuffer(device_, stagingBuffer, nullptr);
     vkFreeMemory(device_, stagingBufferMemory, nullptr);
+
+    world_.meshes[{cx, cy}] = mesh;
   }
 
   void addCulledCubeToMesh(const float x, const float y, const float z, const BlockType type, const bool neighbors[6], std::vector<Vertex>& vertices) {
@@ -1402,6 +1383,7 @@ private:
       lastFrameTime = now;
 
       processInput(deltaTime);
+      updateWorld();
       drawFrame();
 
       // Frame rate limiting
@@ -1554,11 +1536,13 @@ private:
       0,
       nullptr);
 
-    if (vertexBuffer_ != VK_NULL_HANDLE) {
-      VkBuffer vertexBuffers[] = {vertexBuffer_};
-      VkDeviceSize offsets[] = {0};
-      vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-      vkCmdDraw(commandBuffer, vertexCount_, 1, 0, 0);
+    for (auto const& [pos, mesh] : world_.meshes) {
+      if (mesh.vertexBuffer != VK_NULL_HANDLE) {
+        VkBuffer vertexBuffers[] = {mesh.vertexBuffer};
+        VkDeviceSize offsets[] = {0};
+        vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+        vkCmdDraw(commandBuffer, mesh.vertexCount, 1, 0, 0);
+      }
     }
 
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffer);
@@ -1644,10 +1628,11 @@ private:
       cleanupImGui();
       cleanupSwapChain();
 
-      if (vertexBuffer_ != VK_NULL_HANDLE) {
-        vkDestroyBuffer(device_, vertexBuffer_, nullptr);
-        vkFreeMemory(device_, vertexMemory_, nullptr);
-        vertexBuffer_ = VK_NULL_HANDLE;
+      for (auto const& [pos, mesh] : world_.meshes) {
+        if (mesh.vertexBuffer != VK_NULL_HANDLE) {
+          vkDestroyBuffer(device_, mesh.vertexBuffer, nullptr);
+          vkFreeMemory(device_, mesh.vertexMemory, nullptr);
+        }
       }
 
       for (size_t frame = 0; frame < kMaxFramesInFlight; ++frame) {
