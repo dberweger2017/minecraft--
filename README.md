@@ -1,32 +1,57 @@
 # Minecraft-- (aka yet another C++ voxel clone)
 
-Okay so basically the goal is to make a recreation of Minecraft in C++. I've been wanting to learn Vulkan for a while and figured this is the best way to force myself.
+A high-performance Minecraft recreation in C++ using the **Vulkan API**. This project is a deep dive into modern graphics programming, voxel engine architecture, and systems engineering.
 
-### Current Status
-It's actually starting to look like something! I've finally moved past just drawing a square. 
+### 🚀 Current Status
 
-**What's working now:**
-- **3D Cube:** It's a real spinning cube now, not just a flat 2D square. Still just a placeholder while I figure out the chunk system.
-- **FPS Counter:** Added a little counter in the window title so I can see how bad my code is performing (spoiler: it's actually fine for now).
-- **Pause Menu:** You can hit **Esc** to pause the game. It gives you your mouse back and you can click (roughly) in the middle of the screen to resume or slightly below that to quit. It's a bit "invisible" right now since I don't have a UI library, but it works.
-- **Fixed Camera:** Finally fixed the camera rotation! It was doing that weird thing where moving right made the world move right too. Now it feels like a normal first-person camera. Use **W/A/S/D** to move and **Space/Shift** to go up/down.
-- **Better Build Flow:** Created a `run.sh` script because typing out the cmake commands every time was getting annoying.
+We have moved from a simple "Hello Triangle" to a foundational 3D engine!
 
-### How to build
-You're gonna need CMake and the Vulkan SDK. If you're on a Mac like me, it's a bit of a fight with MoltenVK but it works.
+- **Vulkan 3D Pipeline**: Complete with Depth Buffering, Uniform Buffer Objects (UBOs), and Descriptor Sets.
+- **Voxel Data**: A 16x16x16 `Chunk` structure is implemented with block-type data (Grass, Dirt, Stone).
+- **Dynamic Meshing**: A CPU-side mesher that builds vertex data from voxel data and uploads it to the GPU.
+- **FPS Camera**: Standard WASD + Mouse controls (Space to fly up, Shift to fly down).
+- **Dear ImGui Integration**: A professional UI layer for pause menus and (future) debug overlays.
+- **Enhanced Build Pipeline**: `run.sh` now supports parallel builds and provides colorful terminal feedback.
 
-To compile and run everything in one go, just do:
+### 🛠️ How to Build
+
+You will need **CMake**, a **C++20 compiler**, and the **Vulkan SDK**.
+
 ```bash
 ./run.sh
 ```
-(It'll handle the build folder and everything for you).
 
-### Todo
-- [x] Make the square into a 3D cube
-- [x] Working first-person camera
-- [x] Basic pause/quit functionality
-- [ ] **Textures!** (The cube is currently just colored faces, need to get some dirt blocks in here)
-- [ ] Proper Chunks (theoretical infinite world, maybe?)
-- [ ] Translucent blocks (water/glass)
+---
 
-**note:** The code is still a bit of a mess. `HelloApp` is still the main class name because I'm too scared to break the build by renaming it yet `¯\_(ツ)_/¯` If it works don't touch it.
+### 🗺️ The Roadmap (Upcoming Tasks)
+
+#### 1. Voxel World & Generation
+- [ ] **Height-based Layering**: Implement a proper chunk-fill algorithm:
+    - Top layer: **Grass** (Green).
+    - Middle layers: **Dirt** (Brown).
+    - Deep layers (>6 blocks): **Cobblestone** (Dark Gray).
+    - Bottom-most layer: **Bedrock** (Very Dark Gray/Black).
+- [ ] **Procedural Terrain**: Integrate a noise library (e.g., FastNoiseLite) for hills and valleys.
+- [ ] **Face Culling (Optimization)**: Update the mesher to skip rendering faces that are hidden between two solid blocks.
+
+#### 2. Visuals & Interaction
+- [ ] **Texture Mapping**: Implement a Texture Array or Atlas to replace solid vertex colors with block textures.
+- [ ] **Block Interaction**: Implement raycasting to allow players to place/remove blocks with a mouse click.
+- [ ] **Lighting**: Basic ambient occlusion or directional sunlight.
+
+#### 3. Architecture & Refactoring
+- [ ] **Project Modularization**: Move logic out of `main.cpp` into dedicated modules:
+    - `Core/`: Basic types and math.
+    - `Renderer/`: Vulkan abstractions.
+    - `World/`: Chunks and World-gen logic.
+    - `Camera/`: Input and View management.
+- [ ] **Multiplayer-Ready (Server/Client)**: Refactor the engine to separate the **Simulation (Server)** from the **Rendering (Client)**. Even in single-player, the game should run an internal server to make adding future networking seamless.
+
+#### 4. Advanced Features
+- [ ] **Translucent Blocks**: Water and glass rendering with sorted transparency.
+- [ ] **Infinite World**: Dynamic chunk loading/unloading as the player moves.
+- [ ] **Physics**: Gravity and AABB (Axis-Aligned Bounding Box) collisions.
+
+---
+
+**Note:** The project is currently transitioning from a single-file prototype to a modular engine. 🏗️

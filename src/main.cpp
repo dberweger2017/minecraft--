@@ -336,7 +336,7 @@ private:
       app->camera_.firstMouse = false;
     }
 
-    float xoffset = static_cast<float>(xpos) - app->camera_.lastX;
+    float xoffset = app->camera_.lastX - static_cast<float>(xpos);
     float yoffset = app->camera_.lastY - static_cast<float>(ypos);
     app->camera_.lastX = static_cast<float>(xpos);
     app->camera_.lastY = static_cast<float>(ypos);
