@@ -36,36 +36,8 @@ struct QueueFamilyIndices {
 };
 
 #include "World/Chunk.hpp"
+#include "World/Vertex.hpp"
 #include "Camera/Camera.hpp"
-
-struct Vertex {
-  glm::vec3 pos;
-  glm::vec3 color;
-
-  static VkVertexInputBindingDescription getBindingDescription() {
-    VkVertexInputBindingDescription bindingDescription{};
-    bindingDescription.binding = 0;
-    bindingDescription.stride = sizeof(Vertex);
-    bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-    return bindingDescription;
-  }
-
-  static std::array<VkVertexInputAttributeDescription, 2> getAttributeDescriptions() {
-    std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions{};
-
-    attributeDescriptions[0].binding = 0;
-    attributeDescriptions[0].location = 0;
-    attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-    attributeDescriptions[0].offset = offsetof(Vertex, pos);
-
-    attributeDescriptions[1].binding = 0;
-    attributeDescriptions[1].location = 1;
-    attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-    attributeDescriptions[1].offset = offsetof(Vertex, color);
-
-    return attributeDescriptions;
-  }
-};
 
 struct SwapChainSupportDetails {
   VkSurfaceCapabilitiesKHR capabilities{};
@@ -372,7 +344,26 @@ private:
 
     generateChunkMesh();
 
+    spawnPlayer();
+
     initImGui();
+  }
+
+  void spawnPlayer() {
+    // Start from the top (0) and look down for the first non-air block
+    int spawnX = CHUNK_WIDTH / 2;
+    int spawnY = CHUNK_WIDTH / 2;
+    int spawnZ = 0;
+
+    for (int z = 0; z > -CHUNK_HEIGHT; --z) {
+      if (chunk_.getBlock(spawnX, spawnY, z).type != BlockType::Air) {
+        spawnZ = z;
+        break;
+      }
+    }
+
+    // Spawn player 2 blocks above the highest block
+    camera_.setPosition(glm::vec3(static_cast<float>(spawnX), static_cast<float>(spawnY), static_cast<float>(spawnZ) + 2.0f));
   }
 
   void createInstance() {
@@ -1139,7 +1130,15 @@ private:
         for (int z = 0; z > -CHUNK_HEIGHT; --z) {
           const Block block = chunk_.getBlock(x, y, z);
           if (block.isSolid()) {
-            addCubeToMesh(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z), block.type, vertices);
+            bool neighbors[6]; // -X, +X, -Y, +Y, -Z, +Z
+            neighbors[0] = chunk_.getBlock(x - 1, y, z).isSolid();
+            neighbors[1] = chunk_.getBlock(x + 1, y, z).isSolid();
+            neighbors[2] = chunk_.getBlock(x, y - 1, z).isSolid();
+            neighbors[3] = chunk_.getBlock(x, y + 1, z).isSolid();
+            neighbors[4] = chunk_.getBlock(x, y, z - 1).isSolid();
+            neighbors[5] = chunk_.getBlock(x, y, z + 1).isSolid();
+
+            addCulledCubeToMesh(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z), block.type, neighbors, vertices);
           }
         }
       }
@@ -1179,7 +1178,7 @@ private:
     vkFreeMemory(device_, stagingBufferMemory, nullptr);
   }
 
-  void addCubeToMesh(const float x, const float y, const float z, const BlockType type, std::vector<Vertex>& vertices) {
+  void addCulledCubeToMesh(const float x, const float y, const float z, const BlockType type, const bool neighbors[6], std::vector<Vertex>& vertices) {
     glm::vec3 color = glm::vec3(1.0f);
     if (type == BlockType::Grass) {
       color = glm::vec3(0.13f, 0.55f, 0.13f);
@@ -1191,29 +1190,42 @@ private:
       color = glm::vec3(0.1f, 0.1f, 0.1f);
     }
 
-    const glm::vec3 positions[36] = {
-      // Back face
-      {-0.5f, -0.5f, -0.5f}, {0.5f, -0.5f, -0.5f}, {0.5f, 0.5f, -0.5f},
-      {0.5f, 0.5f, -0.5f}, {-0.5f, 0.5f, -0.5f}, {-0.5f, -0.5f, -0.5f},
-      // Front face
-      {-0.5f, -0.5f, 0.5f}, {0.5f, -0.5f, 0.5f}, {0.5f, 0.5f, 0.5f},
-      {0.5f, 0.5f, 0.5f}, {-0.5f, 0.5f, 0.5f}, {-0.5f, -0.5f, 0.5f},
-      // Left face
-      {-0.5f, 0.5f, 0.5f}, {-0.5f, 0.5f, -0.5f}, {-0.5f, -0.5f, -0.5f},
-      {-0.5f, -0.5f, -0.5f}, {-0.5f, -0.5f, 0.5f}, {-0.5f, 0.5f, 0.5f},
-      // Right face
-      {0.5f, 0.5f, 0.5f}, {0.5f, 0.5f, -0.5f}, {0.5f, -0.5f, -0.5f},
-      {0.5f, -0.5f, -0.5f}, {0.5f, -0.5f, 0.5f}, {0.5f, 0.5f, 0.5f},
-      // Bottom face
-      {-0.5f, -0.5f, -0.5f}, {0.5f, -0.5f, -0.5f}, {0.5f, -0.5f, 0.5f},
-      {0.5f, -0.5f, 0.5f}, {-0.5f, -0.5f, 0.5f}, {-0.5f, -0.5f, -0.5f},
-      // Top face
-      {-0.5f, 0.5f, -0.5f}, {0.5f, 0.5f, -0.5f}, {0.5f, 0.5f, 0.5f},
-      {0.5f, 0.5f, 0.5f}, {-0.5f, 0.5f, 0.5f}, {-0.5f, 0.5f, -0.5f}
-    };
+    // Positions relative to block center
+    const float x0 = x - 0.5f, x1 = x + 0.5f;
+    const float y0 = y - 0.5f, y1 = y + 0.5f;
+    const float z0 = z - 0.5f, z1 = z + 0.5f;
 
-    for (const auto& pos : positions) {
-      vertices.push_back({pos + glm::vec3(x, y, z), color});
+    // Neighbors: 0:-X, 1:+X, 2:-Y, 3:+Y, 4:-Z, 5:+Z
+    
+    // Back (-Y)
+    if (!neighbors[2]) {
+        vertices.push_back({{x0, y0, z0}, color}); vertices.push_back({{x1, y0, z0}, color}); vertices.push_back({{x1, y0, z1}, color});
+        vertices.push_back({{x1, y0, z1}, color}); vertices.push_back({{x0, y0, z1}, color}); vertices.push_back({{x0, y0, z0}, color});
+    }
+    // Front (+Y)
+    if (!neighbors[3]) {
+        vertices.push_back({{x0, y1, z0}, color}); vertices.push_back({{x1, y1, z1}, color}); vertices.push_back({{x1, y1, z0}, color});
+        vertices.push_back({{x0, y1, z0}, color}); vertices.push_back({{x0, y1, z1}, color}); vertices.push_back({{x1, y1, z1}, color});
+    }
+    // Left (-X)
+    if (!neighbors[0]) {
+        vertices.push_back({{x0, y1, z1}, color}); vertices.push_back({{x0, y1, z0}, color}); vertices.push_back({{x0, y0, z0}, color});
+        vertices.push_back({{x0, y0, z0}, color}); vertices.push_back({{x0, y0, z1}, color}); vertices.push_back({{x0, y1, z1}, color});
+    }
+    // Right (+X)
+    if (!neighbors[1]) {
+        vertices.push_back({{x1, y1, z1}, color}); vertices.push_back({{x1, y0, z0}, color}); vertices.push_back({{x1, y1, z0}, color});
+        vertices.push_back({{x1, y1, z1}, color}); vertices.push_back({{x1, y0, z1}, color}); vertices.push_back({{x1, y0, z0}, color});
+    }
+    // Bottom (-Z)
+    if (!neighbors[4]) {
+        vertices.push_back({{x0, y0, z0}, color}); vertices.push_back({{x0, y1, z0}, color}); vertices.push_back({{x1, y1, z0}, color});
+        vertices.push_back({{x1, y1, z0}, color}); vertices.push_back({{x1, y0, z0}, color}); vertices.push_back({{x0, y0, z0}, color});
+    }
+    // Top (+Z)
+    if (!neighbors[5]) {
+        vertices.push_back({{x0, y0, z1}, color}); vertices.push_back({{x1, y1, z1}, color}); vertices.push_back({{x0, y1, z1}, color});
+        vertices.push_back({{x0, y0, z1}, color}); vertices.push_back({{x1, y0, z1}, color}); vertices.push_back({{x1, y1, z1}, color});
     }
   }
 
@@ -1353,6 +1365,11 @@ private:
           togglePause();
         }
 
+        ImGui::Spacing();
+        ImGui::Text("Target FPS: %d", targetFps_);
+        ImGui::SliderInt("##targetFps", &targetFps_, 30, 240);
+        ImGui::Spacing();
+
         if (ImGui::Button("Quit Game", ImVec2(-1, 40))) {
           glfwSetWindowShouldClose(window_, GLFW_TRUE);
         }
@@ -1386,6 +1403,13 @@ private:
 
       processInput(deltaTime);
       drawFrame();
+
+      // Frame rate limiting
+      if (targetFps_ > 0) {
+        auto frameTargetDuration = std::chrono::nanoseconds(1000000000 / targetFps_);
+        auto nextFrameTime = lastFrameTime + frameTargetDuration;
+        std::this_thread::sleep_until(nextFrameTime);
+      }
 
       if (autoCloseAfterSeconds.has_value() && glfwGetTime() >= closeAt) {
         glfwSetWindowShouldClose(window_, GLFW_TRUE);
