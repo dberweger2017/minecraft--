@@ -2,20 +2,26 @@
 
 #include "Block.hpp"
 
-constexpr int CHUNK_SIZE = 16;
+constexpr int CHUNK_WIDTH = 16;
+constexpr int CHUNK_HEIGHT = 512;
 
 struct Chunk {
-  Block blocks[CHUNK_SIZE][CHUNK_SIZE][CHUNK_SIZE];
+  // We use a 1D array or adjusted indexing to handle the height
+  // For simplicity in this stage, we'll use [width][width][height]
+  Block blocks[CHUNK_WIDTH][CHUNK_WIDTH][CHUNK_HEIGHT];
 
   void setBlock(const int x, const int y, const int z, const BlockType type) {
-    if (x >= 0 && x < CHUNK_SIZE && y >= 0 && y < CHUNK_SIZE && z >= 0 && z < CHUNK_SIZE) {
-      blocks[x][y][z].type = type;
+    // Map Z from 0 to -511 into array index 511 down to 0
+    int zIdx = z + (CHUNK_HEIGHT - 1); 
+    if (x >= 0 && x < CHUNK_WIDTH && y >= 0 && y < CHUNK_WIDTH && zIdx >= 0 && zIdx < CHUNK_HEIGHT) {
+      blocks[x][y][zIdx].type = type;
     }
   }
 
   [[nodiscard]] Block getBlock(const int x, const int y, const int z) const {
-    if (x >= 0 && x < CHUNK_SIZE && y >= 0 && y < CHUNK_SIZE && z >= 0 && z < CHUNK_SIZE) {
-      return blocks[x][y][z];
+    int zIdx = z + (CHUNK_HEIGHT - 1);
+    if (x >= 0 && x < CHUNK_WIDTH && y >= 0 && y < CHUNK_WIDTH && zIdx >= 0 && zIdx < CHUNK_HEIGHT) {
+      return blocks[x][y][zIdx];
     }
     return {BlockType::Air};
   }

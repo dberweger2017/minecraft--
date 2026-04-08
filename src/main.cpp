@@ -23,6 +23,7 @@
 #include <set>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 
 struct QueueFamilyIndices {
@@ -35,6 +36,7 @@ struct QueueFamilyIndices {
 };
 
 #include "World/Chunk.hpp"
+#include "Camera/Camera.hpp"
 
 struct Vertex {
   glm::vec3 pos;
@@ -71,26 +73,10 @@ struct SwapChainSupportDetails {
   std::vector<VkPresentModeKHR> presentModes;
 };
 
-struct PushConstants {
-  float offset[2];
-  float scale[2];
-};
-
 struct UniformBufferObject {
   alignas(16) glm::mat4 model;
   alignas(16) glm::mat4 view;
   alignas(16) glm::mat4 proj;
-};
-
-struct CameraState {
-  glm::vec3 pos = glm::vec3(2.0f, 2.0f, 2.0f);
-  glm::vec3 front = glm::vec3(-1.0f, -1.0f, -1.0f);
-  glm::vec3 up = glm::vec3(0.0f, 0.0f, 1.0f);
-  glm::vec3 velocity = glm::vec3(0.0f);
-  float yaw = -135.0f;
-  float pitch = -35.0f;
-  float lastX = 640, lastY = 360;
-  bool firstMouse = true;
 };
 
 struct SquareState {
@@ -170,6 +156,7 @@ private:
   size_t currentFrame_ = 0;
 
   bool isPaused_ = false;
+  int targetFps_ = 144;
 
   void togglePause() {
     isPaused_ = !isPaused_;
@@ -275,8 +262,7 @@ private:
     vkFreeCommandBuffers(device_, commandPool_, 1, &commandBuffer);
   }
 
-  SquareState square_{};
-  CameraState camera_{};
+  Camera camera_{};
   Chunk chunk_{};
 
   static void framebufferResizeCallback(GLFWwindow* window, int, int) {
@@ -296,31 +282,7 @@ private:
       return;
     }
 
-    if (app->camera_.firstMouse) {
-      app->camera_.lastX = static_cast<float>(xpos);
-      app->camera_.lastY = static_cast<float>(ypos);
-      app->camera_.firstMouse = false;
-    }
-
-    float xoffset = app->camera_.lastX - static_cast<float>(xpos);
-    float yoffset = app->camera_.lastY - static_cast<float>(ypos);
-    app->camera_.lastX = static_cast<float>(xpos);
-    app->camera_.lastY = static_cast<float>(ypos);
-
-    constexpr float sensitivity = 0.1f;
-    xoffset *= sensitivity;
-    yoffset *= sensitivity;
-
-    app->camera_.yaw += xoffset;
-    app->camera_.pitch += yoffset;
-
-    app->camera_.pitch = std::clamp(app->camera_.pitch, -89.0f, 89.0f);
-
-    glm::vec3 direction;
-    direction.x = std::cos(glm::radians(app->camera_.yaw)) * std::cos(glm::radians(app->camera_.pitch));
-    direction.y = std::sin(glm::radians(app->camera_.yaw)) * std::cos(glm::radians(app->camera_.pitch));
-    direction.z = std::sin(glm::radians(app->camera_.pitch));
-    app->camera_.front = glm::normalize(direction);
+    app->camera_.handleMouseMovement(static_cast<float>(xpos), static_cast<float>(ypos));
   }
 
   static void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
@@ -335,58 +297,7 @@ private:
   }
 
   void processInput(const float deltaTime) {
-    if (isPaused_) {
-      camera_.velocity = glm::vec3(0.0f); // Stop movement if paused
-      return;
-    }
-
-    // Movement settings
-    const float acceleration = 50.0f;
-    const float friction = 8.0f;
-    const float maxSpeed = 10.0f;
-
-    glm::vec3 inputDir = glm::vec3(0.0f);
-    if (glfwGetKey(window_, GLFW_KEY_W) == GLFW_PRESS) {
-      inputDir += camera_.front;
-    }
-    if (glfwGetKey(window_, GLFW_KEY_S) == GLFW_PRESS) {
-      inputDir -= camera_.front;
-    }
-    if (glfwGetKey(window_, GLFW_KEY_A) == GLFW_PRESS) {
-      inputDir -= glm::normalize(glm::cross(camera_.front, camera_.up));
-    }
-    if (glfwGetKey(window_, GLFW_KEY_D) == GLFW_PRESS) {
-      inputDir += glm::normalize(glm::cross(camera_.front, camera_.up));
-    }
-    if (glfwGetKey(window_, GLFW_KEY_SPACE) == GLFW_PRESS) {
-      inputDir += camera_.up;
-    }
-    if (glfwGetKey(window_, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) {
-      inputDir -= camera_.up;
-    }
-
-    if (glm::length(inputDir) > 0.0f) {
-      inputDir = glm::normalize(inputDir);
-      camera_.velocity += inputDir * acceleration * deltaTime;
-    }
-
-    // Apply friction
-    if (glm::length(camera_.velocity) > 0.0f) {
-      camera_.velocity -= camera_.velocity * friction * deltaTime;
-    }
-
-    // Limit max speed
-    if (glm::length(camera_.velocity) > maxSpeed) {
-      camera_.velocity = glm::normalize(camera_.velocity) * maxSpeed;
-    }
-
-    // Threshold to stop completely
-    if (glm::length(camera_.velocity) < 0.01f) {
-      camera_.velocity = glm::vec3(0.0f);
-    }
-
-    // Update position
-    camera_.pos += camera_.velocity * deltaTime;
+    camera_.processInput(window_, deltaTime, isPaused_);
   }
 
   void initWindow() {
@@ -438,20 +349,20 @@ private:
     createCommandBuffers();
     createSyncObjects();
 
-    // Layered Terrain Generation
-    for (int x = 0; x < CHUNK_SIZE; ++x) {
-      for (int y = 0; y < CHUNK_SIZE; ++y) {
-        for (int z = 0; z < CHUNK_SIZE; ++z) {
+    // Layered Terrain Generation (0 down to -511)
+    for (int x = 0; x < CHUNK_WIDTH; ++x) {
+      for (int y = 0; y < CHUNK_WIDTH; ++y) {
+        for (int z = 0; z > -CHUNK_HEIGHT; --z) {
           BlockType type = BlockType::Air;
 
           if (z == 0) {
-            type = BlockType::Bedrock;
-          } else if (z < 6) {
-            type = BlockType::Stone;
-          } else if (z < 15) {
-            type = BlockType::Dirt;
-          } else if (z == 15) {
             type = BlockType::Grass;
+          } else if (z > -4) {
+            type = BlockType::Dirt;
+          } else if (z > -511) {
+            type = BlockType::Stone;
+          } else if (z == -511) {
+            type = BlockType::Bedrock;
           }
 
           chunk_.setBlock(x, y, z, type);
@@ -972,17 +883,12 @@ private:
   }
 
   void createPipelineLayout() {
-    VkPushConstantRange pushConstantRange{};
-    pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-    pushConstantRange.offset = 0;
-    pushConstantRange.size = sizeof(PushConstants);
-
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipelineLayoutInfo.setLayoutCount = 1;
     pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout_;
-    pipelineLayoutInfo.pushConstantRangeCount = 1;
-    pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
+    pipelineLayoutInfo.pushConstantRangeCount = 0;
+    pipelineLayoutInfo.pPushConstantRanges = nullptr;
 
     if (vkCreatePipelineLayout(device_, &pipelineLayoutInfo, nullptr, &pipelineLayout_) != VK_SUCCESS) {
       throw std::runtime_error("Failed to create the pipeline layout.");
@@ -1228,9 +1134,9 @@ private:
   void generateChunkMesh() {
     std::vector<Vertex> vertices;
 
-    for (int x = 0; x < CHUNK_SIZE; ++x) {
-      for (int y = 0; y < CHUNK_SIZE; ++y) {
-        for (int z = 0; z < CHUNK_SIZE; ++z) {
+    for (int x = 0; x < CHUNK_WIDTH; ++x) {
+      for (int y = 0; y < CHUNK_WIDTH; ++y) {
+        for (int z = 0; z > -CHUNK_HEIGHT; --z) {
           const Block block = chunk_.getBlock(x, y, z);
           if (block.isSolid()) {
             addCubeToMesh(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z), block.type, vertices);
@@ -1479,9 +1385,6 @@ private:
       lastFrameTime = now;
 
       processInput(deltaTime);
-      if (!isPaused_) {
-        updateSquare(deltaTime);
-      }
       drawFrame();
 
       if (autoCloseAfterSeconds.has_value() && glfwGetTime() >= closeAt) {
@@ -1490,53 +1393,6 @@ private:
     }
 
     vkDeviceWaitIdle(device_);
-  }
-
-  void updateSquare(const float deltaTime) {
-    // printf("dt: %f\n", deltaTime); // keep this for physics debugging later
-
-    // TODO: This is just a placeholder bouncing DVD logo thing.
-    // Eventually rip this out and replace with player movement and chunk map updates.
-    if (deltaTime <= 0.0f || swapChainExtent_.width == 0 || swapChainExtent_.height == 0) {
-      return;
-    }
-
-    const float aspectCorrection =
-      static_cast<float>(swapChainExtent_.height) / static_cast<float>(swapChainExtent_.width);
-    const float horizontalHalfExtent = square_.halfSize * aspectCorrection;
-    const float verticalHalfExtent = square_.halfSize;
-
-    square_.x += square_.vx * deltaTime;
-    square_.y += square_.vy * deltaTime;
-
-    bounceAxis(square_.x, square_.vx, horizontalHalfExtent);
-    bounceAxis(square_.y, square_.vy, verticalHalfExtent);
-  }
-
-  static void bounceAxis(float& position, float& velocity, const float halfExtent) {
-    const float minPosition = -1.0f + halfExtent;
-    const float maxPosition = 1.0f - halfExtent;
-
-    if (position < minPosition) {
-      position = minPosition;
-      velocity = std::abs(velocity);
-    } else if (position > maxPosition) {
-      position = maxPosition;
-      velocity = -std::abs(velocity);
-    }
-  }
-
-  [[nodiscard]] PushConstants makePushConstants() const {
-    const float aspectCorrection = swapChainExtent_.width == 0 || swapChainExtent_.height == 0
-      ? 1.0f
-      : static_cast<float>(swapChainExtent_.height) / static_cast<float>(swapChainExtent_.width);
-
-    PushConstants pushConstants{};
-    pushConstants.offset[0] = square_.x;
-    pushConstants.offset[1] = square_.y;
-    pushConstants.scale[0] = square_.halfSize * aspectCorrection;
-    pushConstants.scale[1] = square_.halfSize;
-    return pushConstants;
   }
 
   void drawFrame() {
@@ -1616,7 +1472,7 @@ private:
 
     UniformBufferObject ubo{};
     ubo.model = glm::mat4(1.0f);
-    ubo.view = glm::lookAt(camera_.pos, camera_.pos + camera_.front, camera_.up);
+    ubo.view = camera_.getViewMatrix();
     ubo.proj = glm::perspective(
       glm::radians(45.0f),
       static_cast<float>(swapChainExtent_.width) / static_cast<float>(swapChainExtent_.height),
