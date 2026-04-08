@@ -6,6 +6,10 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
+#include <imgui.h>
+#include <imgui_impl_glfw.h>
+#include <imgui_impl_vulkan.h>
+
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -27,6 +31,71 @@ struct QueueFamilyIndices {
 
   [[nodiscard]] bool isComplete() const {
     return graphicsFamily.has_value() && presentFamily.has_value();
+  }
+};
+
+enum class BlockType : uint8_t {
+  Air = 0,
+  Dirt = 1,
+  Grass = 2,
+  Stone = 3,
+  Wood = 4,
+  Leaves = 5
+};
+
+struct Block {
+  BlockType type = BlockType::Air;
+
+  [[nodiscard]] bool isSolid() const {
+    return type != BlockType::Air;
+  }
+};
+
+struct Vertex {
+  glm::vec3 pos;
+  glm::vec3 color;
+
+  static VkVertexInputBindingDescription getBindingDescription() {
+    VkVertexInputBindingDescription bindingDescription{};
+    bindingDescription.binding = 0;
+    bindingDescription.stride = sizeof(Vertex);
+    bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+    return bindingDescription;
+  }
+
+  static std::array<VkVertexInputAttributeDescription, 2> getAttributeDescriptions() {
+    std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions{};
+
+    attributeDescriptions[0].binding = 0;
+    attributeDescriptions[0].location = 0;
+    attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attributeDescriptions[0].offset = offsetof(Vertex, pos);
+
+    attributeDescriptions[1].binding = 0;
+    attributeDescriptions[1].location = 1;
+    attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attributeDescriptions[1].offset = offsetof(Vertex, color);
+
+    return attributeDescriptions;
+  }
+};
+
+constexpr int CHUNK_SIZE = 16;
+
+struct Chunk {
+  Block blocks[CHUNK_SIZE][CHUNK_SIZE][CHUNK_SIZE];
+
+  void setBlock(const int x, const int y, const int z, const BlockType type) {
+    if (x >= 0 && x < CHUNK_SIZE && y >= 0 && y < CHUNK_SIZE && z >= 0 && z < CHUNK_SIZE) {
+      blocks[x][y][z].type = type;
+    }
+  }
+
+  [[nodiscard]] Block getBlock(const int x, const int y, const int z) const {
+    if (x >= 0 && x < CHUNK_SIZE && y >= 0 && y < CHUNK_SIZE && z >= 0 && z < CHUNK_SIZE) {
+      return blocks[x][y][z];
+    }
+    return {BlockType::Air};
   }
 };
 
@@ -115,11 +184,16 @@ private:
   VkCommandPool commandPool_ = VK_NULL_HANDLE;
   std::array<VkCommandBuffer, kMaxFramesInFlight> commandBuffers_{};
 
+  VkBuffer vertexBuffer_ = VK_NULL_HANDLE;
+  VkDeviceMemory vertexMemory_ = VK_NULL_HANDLE;
+  uint32_t vertexCount_ = 0;
+
   std::vector<VkBuffer> uniformBuffers_;
   std::vector<VkDeviceMemory> uniformBuffersMemory_;
   std::vector<void*> uniformBuffersMapped_;
 
   VkDescriptorPool descriptorPool_ = VK_NULL_HANDLE;
+  VkDescriptorPool imguiPool_ = VK_NULL_HANDLE;
   std::vector<VkDescriptorSet> descriptorSets_;
 
   std::array<VkSemaphore, kMaxFramesInFlight> imageAvailableSemaphores_{};
@@ -140,14 +214,113 @@ private:
     }
   }
 
+  void initImGui() {
+    VkDescriptorPoolSize poolSizes[] = {
+      {VK_DESCRIPTOR_TYPE_SAMPLER, 1000},
+      {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000},
+      {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000},
+      {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000},
+      {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000},
+      {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000},
+      {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000},
+      {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000},
+      {VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000}
+    };
+
+    VkDescriptorPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+    poolInfo.maxSets = 1000 * IM_ARRAYSIZE(poolSizes);
+    poolInfo.poolSizeCount = static_cast<uint32_t>(IM_ARRAYSIZE(poolSizes));
+    poolInfo.pPoolSizes = poolSizes;
+
+    if (vkCreateDescriptorPool(device_, &poolInfo, nullptr, &imguiPool_) != VK_SUCCESS) {
+      throw std::runtime_error("Failed to create ImGui descriptor pool.");
+    }
+
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    (void)io;
+    ImGui::StyleColorsDark();
+
+    ImGui_ImplGlfw_InitForVulkan(window_, true);
+    ImGui_ImplVulkan_InitInfo initInfo{};
+    initInfo.Instance = instance_;
+    initInfo.PhysicalDevice = physicalDevice_;
+    initInfo.Device = device_;
+    initInfo.QueueFamily = findQueueFamilies(physicalDevice_).graphicsFamily.value();
+    initInfo.Queue = graphicsQueue_;
+    initInfo.PipelineCache = VK_NULL_HANDLE;
+    initInfo.DescriptorPool = imguiPool_;
+    initInfo.Subpass = 0;
+    initInfo.MinImageCount = kMaxFramesInFlight;
+    initInfo.ImageCount = kMaxFramesInFlight;
+    initInfo.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+    initInfo.RenderPass = renderPass_;
+    initInfo.Allocator = nullptr;
+    initInfo.CheckVkResultFn = nullptr;
+    ImGui_ImplVulkan_Init(&initInfo);
+
+    ImGui_ImplVulkan_CreateFontsTexture();
+  }
+
+  void cleanupImGui() {
+    ImGui_ImplVulkan_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImGui::DestroyContext();
+
+    if (imguiPool_ != VK_NULL_HANDLE) {
+      vkDestroyDescriptorPool(device_, imguiPool_, nullptr);
+      imguiPool_ = VK_NULL_HANDLE;
+    }
+  }
+
+  [[nodiscard]] VkCommandBuffer beginSingleTimeCommands() const {
+    VkCommandBufferAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandPool = commandPool_;
+    allocInfo.commandBufferCount = 1;
+
+    VkCommandBuffer commandBuffer;
+    vkAllocateCommandBuffers(device_, &allocInfo, &commandBuffer);
+
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+    vkBeginCommandBuffer(commandBuffer, &beginInfo);
+    return commandBuffer;
+  }
+
+  void endSingleTimeCommands(const VkCommandBuffer commandBuffer) const {
+    vkEndCommandBuffer(commandBuffer);
+
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer;
+
+    vkQueueSubmit(graphicsQueue_, 1, &submitInfo, VK_NULL_HANDLE);
+    vkQueueWaitIdle(graphicsQueue_);
+
+    vkFreeCommandBuffers(device_, commandPool_, 1, &commandBuffer);
+  }
+
   SquareState square_{};
   CameraState camera_{};
+  Chunk chunk_{};
 
   static void framebufferResizeCallback(GLFWwindow* window, int, int) {
     auto* app = reinterpret_cast<HelloApp*>(glfwGetWindowUserPointer(window));
     if (app != nullptr) {
       app->framebufferResized_ = true;
     }
+  }
+
+  static void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
+    // ImGui handles mouse input now
   }
 
   static void mouseCallback(GLFWwindow* window, const double xpos, const double ypos) {
@@ -178,8 +351,8 @@ private:
 
     glm::vec3 direction;
     direction.x = std::cos(glm::radians(app->camera_.yaw)) * std::cos(glm::radians(app->camera_.pitch));
-    direction.z = std::sin(glm::radians(app->camera_.pitch));
     direction.y = std::sin(glm::radians(app->camera_.yaw)) * std::cos(glm::radians(app->camera_.pitch));
+    direction.z = std::sin(glm::radians(app->camera_.pitch));
     app->camera_.front = glm::normalize(direction);
   }
 
@@ -238,6 +411,7 @@ private:
     glfwSetWindowUserPointer(window_, this);
     glfwSetFramebufferSizeCallback(window_, framebufferResizeCallback);
     glfwSetCursorPosCallback(window_, mouseCallback);
+    glfwSetMouseButtonCallback(window_, mouseButtonCallback);
     glfwSetKeyCallback(window_, keyCallback);
 
     glfwSetInputMode(window_, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
@@ -267,6 +441,20 @@ private:
     createCommandPool();
     createCommandBuffers();
     createSyncObjects();
+
+    // Place some blocks to inspect
+    for (int x = 0; x < CHUNK_SIZE; ++x) {
+      for (int y = 0; y < CHUNK_SIZE; ++y) {
+        chunk_.setBlock(x, y, 0, BlockType::Grass);
+      }
+    }
+    chunk_.setBlock(8, 8, 1, BlockType::Stone);
+    chunk_.setBlock(8, 8, 2, BlockType::Stone);
+    chunk_.setBlock(7, 8, 1, BlockType::Dirt);
+
+    generateChunkMesh();
+
+    initImGui();
   }
 
   void createInstance() {
@@ -855,6 +1043,14 @@ private:
     VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
     vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
 
+    const auto bindingDescription = Vertex::getBindingDescription();
+    const auto attributeDescriptions = Vertex::getAttributeDescriptions();
+
+    vertexInputInfo.vertexBindingDescriptionCount = 1;
+    vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
+    vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
+    vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
+
     VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
     inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
     inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
@@ -1022,6 +1218,123 @@ private:
     }
   }
 
+  void generateChunkMesh() {
+    std::vector<Vertex> vertices;
+
+    for (int x = 0; x < CHUNK_SIZE; ++x) {
+      for (int y = 0; y < CHUNK_SIZE; ++y) {
+        for (int z = 0; z < CHUNK_SIZE; ++z) {
+          const Block block = chunk_.getBlock(x, y, z);
+          if (block.isSolid()) {
+            addCubeToMesh(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z), block.type, vertices);
+          }
+        }
+      }
+    }
+
+    if (vertices.empty()) {
+      return;
+    }
+
+    vertexCount_ = static_cast<uint32_t>(vertices.size());
+    const VkDeviceSize bufferSize = sizeof(Vertex) * vertices.size();
+
+    VkBuffer stagingBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory stagingBufferMemory = VK_NULL_HANDLE;
+    createBuffer(
+      bufferSize,
+      VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+      stagingBuffer,
+      stagingBufferMemory);
+
+    void* data = nullptr;
+    vkMapMemory(device_, stagingBufferMemory, 0, bufferSize, 0, &data);
+    std::memcpy(data, vertices.data(), static_cast<size_t>(bufferSize));
+    vkUnmapMemory(device_, stagingBufferMemory);
+
+    createBuffer(
+      bufferSize,
+      VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+      vertexBuffer_,
+      vertexMemory_);
+
+    copyBuffer(stagingBuffer, vertexBuffer_, bufferSize);
+
+    vkDestroyBuffer(device_, stagingBuffer, nullptr);
+    vkFreeMemory(device_, stagingBufferMemory, nullptr);
+  }
+
+  void addCubeToMesh(const float x, const float y, const float z, const BlockType type, std::vector<Vertex>& vertices) {
+    glm::vec3 color = glm::vec3(1.0f);
+    if (type == BlockType::Grass) {
+      color = glm::vec3(0.13f, 0.55f, 0.13f);
+    } else if (type == BlockType::Dirt) {
+      color = glm::vec3(0.55f, 0.27f, 0.07f);
+    } else if (type == BlockType::Stone) {
+      color = glm::vec3(0.5f, 0.5f, 0.5f);
+    }
+
+    const glm::vec3 positions[36] = {
+      // Back face
+      {-0.5f, -0.5f, -0.5f}, {0.5f, -0.5f, -0.5f}, {0.5f, 0.5f, -0.5f},
+      {0.5f, 0.5f, -0.5f}, {-0.5f, 0.5f, -0.5f}, {-0.5f, -0.5f, -0.5f},
+      // Front face
+      {-0.5f, -0.5f, 0.5f}, {0.5f, -0.5f, 0.5f}, {0.5f, 0.5f, 0.5f},
+      {0.5f, 0.5f, 0.5f}, {-0.5f, 0.5f, 0.5f}, {-0.5f, -0.5f, 0.5f},
+      // Left face
+      {-0.5f, 0.5f, 0.5f}, {-0.5f, 0.5f, -0.5f}, {-0.5f, -0.5f, -0.5f},
+      {-0.5f, -0.5f, -0.5f}, {-0.5f, -0.5f, 0.5f}, {-0.5f, 0.5f, 0.5f},
+      // Right face
+      {0.5f, 0.5f, 0.5f}, {0.5f, 0.5f, -0.5f}, {0.5f, -0.5f, -0.5f},
+      {0.5f, -0.5f, -0.5f}, {0.5f, -0.5f, 0.5f}, {0.5f, 0.5f, 0.5f},
+      // Bottom face
+      {-0.5f, -0.5f, -0.5f}, {0.5f, -0.5f, -0.5f}, {0.5f, -0.5f, 0.5f},
+      {0.5f, -0.5f, 0.5f}, {-0.5f, -0.5f, 0.5f}, {-0.5f, -0.5f, -0.5f},
+      // Top face
+      {-0.5f, 0.5f, -0.5f}, {0.5f, 0.5f, -0.5f}, {0.5f, 0.5f, 0.5f},
+      {0.5f, 0.5f, 0.5f}, {-0.5f, 0.5f, 0.5f}, {-0.5f, 0.5f, -0.5f}
+    };
+
+    for (const auto& pos : positions) {
+      vertices.push_back({pos + glm::vec3(x, y, z), color});
+    }
+  }
+
+  void copyBuffer(const VkBuffer srcBuffer, const VkBuffer dstBuffer, const VkDeviceSize size) {
+    VkCommandBufferAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandPool = commandPool_;
+    allocInfo.commandBufferCount = 1;
+
+    VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
+    vkAllocateCommandBuffers(device_, &allocInfo, &commandBuffer);
+
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+    vkBeginCommandBuffer(commandBuffer, &beginInfo);
+
+    VkBufferCopy copyRegion{};
+    copyRegion.size = size;
+    vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
+
+    vkEndCommandBuffer(commandBuffer);
+
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer;
+
+    vkQueueSubmit(graphicsQueue_, 1, &submitInfo, VK_NULL_HANDLE);
+    vkQueueWaitIdle(graphicsQueue_);
+
+    vkFreeCommandBuffers(device_, commandPool_, 1, &commandBuffer);
+  }
+
   void createBuffer(
     const VkDeviceSize size,
     const VkBufferUsageFlags usage,
@@ -1101,20 +1414,54 @@ private:
 
     double lastFpsUpdateTime = glfwGetTime();
     int frameCount = 0;
-
     while (glfwWindowShouldClose(window_) == GLFW_FALSE) {
       glfwPollEvents();
 
       const double currentTime = glfwGetTime();
-      frameCount++;
-      if (currentTime - lastFpsUpdateTime >= 1.0) {
-        const double fps = static_cast<double>(frameCount) / (currentTime - lastFpsUpdateTime);
-        char title[256];
-        snprintf(title, sizeof(title), "Minecraft Vulkan - %.1f FPS", fps);
-        glfwSetWindowTitle(window_, title);
 
-        frameCount = 0;
+      ImGui_ImplVulkan_NewFrame();
+      ImGui_ImplGlfw_NewFrame();
+      ImGui::NewFrame();
+
+      if (isPaused_) {
+        // Center the window
+        int width, height;
+        glfwGetWindowSize(window_, &width, &height);
+        ImGui::SetNextWindowPos(ImVec2(width / 2.0f, height / 2.0f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+        ImGui::SetNextWindowSize(ImVec2(250, 0));
+        ImGui::Begin("Pause Menu", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize);
+
+        ImGui::Text("Game Paused");
+        ImGui::Separator();
+
+        if (ImGui::Button("Resume", ImVec2(-1, 40))) {
+          togglePause();
+        }
+
+        if (ImGui::Button("Quit Game", ImVec2(-1, 40))) {
+          glfwSetWindowShouldClose(window_, GLFW_TRUE);
+        }
+
+        ImGui::End();
+      }
+
+      ImGui::Render();
+
+      if (!isPaused_) {
+        frameCount++;
+        if (currentTime - lastFpsUpdateTime >= 1.0) {
+          const double fps = static_cast<double>(frameCount) / (currentTime - lastFpsUpdateTime);
+          char title[256];
+          snprintf(title, sizeof(title), "Minecraft Vulkan - %.1f FPS", fps);
+          glfwSetWindowTitle(window_, title);
+
+          frameCount = 0;
+          lastFpsUpdateTime = currentTime;
+        }
+      } else {
+        glfwSetWindowTitle(window_, "Minecraft Vulkan - PAUSED");
         lastFpsUpdateTime = currentTime;
+        frameCount = 0;
       }
 
       const auto now = std::chrono::steady_clock::now();
@@ -1123,7 +1470,9 @@ private:
       lastFrameTime = now;
 
       processInput(deltaTime);
-      updateSquare(deltaTime);
+      if (!isPaused_) {
+        updateSquare(deltaTime);
+      }
       drawFrame();
 
       if (autoCloseAfterSeconds.has_value() && glfwGetTime() >= closeAt) {
@@ -1316,16 +1665,15 @@ private:
       0,
       nullptr);
 
-    const PushConstants pushConstants = makePushConstants();
-    vkCmdPushConstants(
-      commandBuffer,
-      pipelineLayout_,
-      VK_SHADER_STAGE_VERTEX_BIT,
-      0,
-      sizeof(PushConstants),
-      &pushConstants);
+    if (vertexBuffer_ != VK_NULL_HANDLE) {
+      VkBuffer vertexBuffers[] = {vertexBuffer_};
+      VkDeviceSize offsets[] = {0};
+      vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+      vkCmdDraw(commandBuffer, vertexCount_, 1, 0, 0);
+    }
 
-    vkCmdDraw(commandBuffer, 36, 1, 0, 0);
+    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffer);
+
     vkCmdEndRenderPass(commandBuffer);
 
     if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
@@ -1404,7 +1752,14 @@ private:
     if (device_ != VK_NULL_HANDLE) {
       vkDeviceWaitIdle(device_);
 
+      cleanupImGui();
       cleanupSwapChain();
+
+      if (vertexBuffer_ != VK_NULL_HANDLE) {
+        vkDestroyBuffer(device_, vertexBuffer_, nullptr);
+        vkFreeMemory(device_, vertexMemory_, nullptr);
+        vertexBuffer_ = VK_NULL_HANDLE;
+      }
 
       for (size_t frame = 0; frame < kMaxFramesInFlight; ++frame) {
         if (imageAvailableSemaphores_[frame] != VK_NULL_HANDLE) {
