@@ -503,7 +503,7 @@ void Renderer::createSyncObjects() {
     }
 }
 
-void Renderer::drawFrame(const World& world, const Camera& camera, glm::vec3 sunDirection, glm::vec3 sunColor) {
+void Renderer::drawFrame(const World& world, const Camera& camera, glm::vec3 sunDirection, glm::vec3 sunColor, glm::vec3 skyColor) {
     if (swapChainExtent.width == 0 || swapChainExtent.height == 0) return;
 
     static int frameCount = 0;
@@ -523,7 +523,7 @@ void Renderer::drawFrame(const World& world, const Camera& camera, glm::vec3 sun
     updateUniformBuffer(currentFrame, camera, sunDirection, sunColor);
     vkResetFences(device, 1, &inFlightFences[currentFrame]);
     vkResetCommandBuffer(commandBuffers[currentFrame], 0);
-    recordCommandBuffer(commandBuffers[currentFrame], imageIndex, world);
+    recordCommandBuffer(commandBuffers[currentFrame], imageIndex, world, skyColor);
 
     VkSubmitInfo submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -553,7 +553,7 @@ void Renderer::drawFrame(const World& world, const Camera& camera, glm::vec3 sun
     currentFrame = (currentFrame + 1) % kMaxFramesInFlight;
 }
 
-void Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex, const World& world) {
+void Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex, const World& world, glm::vec3 skyColor) {
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     vkBeginCommandBuffer(commandBuffer, &beginInfo);
@@ -564,7 +564,7 @@ void Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t image
     renderPassInfo.framebuffer = swapChainFramebuffers[imageIndex];
     renderPassInfo.renderArea.extent = swapChainExtent;
     std::array<VkClearValue, 2> clearValues{};
-    clearValues[0].color = {{0.1f, 0.1f, 0.1f, 1.0f}};
+    clearValues[0].color = {{skyColor.r, skyColor.g, skyColor.b, 1.0f}};
     clearValues[1].depthStencil = {1.0f, 0};
     renderPassInfo.clearValueCount = (uint32_t)clearValues.size();
     renderPassInfo.pClearValues = clearValues.data();

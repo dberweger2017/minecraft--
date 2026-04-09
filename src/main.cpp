@@ -63,7 +63,7 @@ private:
 
     void mainLoop() {
         auto lastTime = std::chrono::high_resolution_clock::now();
-        float totalTime = 0.0f;
+        float totalTime = 300.0f; // Start at 6:00 AM (Sunrise)
 
         while (!glfwWindowShouldClose(window)) {
             glfwPollEvents();
@@ -93,18 +93,22 @@ private:
             
             // Basic sun color based on time (night is dark, dawn/dusk is orange, day is white)
             glm::vec3 sunColor = glm::vec3(1.0f);
+            glm::vec3 skyColor = glm::vec3(0.5f, 0.7f, 0.9f); // Default midday blue
+
             float sunHeight = -sunDirection.y; // High is positive
             if (sunHeight < 0.0f) {
                 // Night
                 sunColor = glm::vec3(0.1f, 0.1f, 0.2f);
+                skyColor = glm::vec3(0.02f, 0.02f, 0.05f);
             } else if (sunHeight < 0.2f) {
                 // Dawn/Dusk
                 float t = sunHeight / 0.2f;
                 sunColor = glm::mix(glm::vec3(1.0f, 0.4f, 0.2f), glm::vec3(1.0f, 1.0f, 1.0f), t);
+                skyColor = glm::mix(glm::vec3(0.1f, 0.05f, 0.05f), glm::vec3(0.5f, 0.7f, 0.9f), t);
             }
 
             if (!world.meshes.empty()) {
-                renderer->drawFrame(world, camera, sunDirection, sunColor);
+                renderer->drawFrame(world, camera, sunDirection, sunColor, skyColor);
             }
         }
         renderer->waitIdle();

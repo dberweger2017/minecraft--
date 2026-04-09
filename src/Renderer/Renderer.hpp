@@ -20,7 +20,7 @@ public:
     Renderer(const RendererInitInfo& info);
     ~Renderer();
 
-    void drawFrame(const World& world, const Camera& camera, glm::vec3 sunDirection, glm::vec3 sunColor);
+    void drawFrame(const World& world, const Camera& camera, glm::vec3 sunDirection, glm::vec3 sunColor, glm::vec3 skyColor);
     void waitIdle();
     void recreateSwapChain();
     void setFramebufferResized() { framebufferResized = true; }
@@ -103,7 +103,7 @@ private:
 
     // Helpers
     void updateUniformBuffer(uint32_t currentImage, const Camera& camera, glm::vec3 sunDirection, glm::vec3 sunColor);
-    void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex, const World& world);
+    void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex, const World& world, glm::vec3 skyColor);
     VkShaderModule createShaderModule(const std::vector<char>& code);
     uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
     VkFormat findDepthFormat();
