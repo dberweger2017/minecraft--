@@ -6,6 +6,8 @@
 #include <optional>
 #include <chrono>
 #include <cmath>
+#include <thread>
+#include <atomic>
 
 #include "World/World.hpp"
 #include "World/ChunkMesher.hpp"
@@ -16,6 +18,12 @@
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_vulkan.h>
+
+enum class GameState {
+    LOADING,
+    INTRO_ANIMATION,
+    PLAYING
+};
 
 class MinecraftApp {
 public:
@@ -32,6 +40,14 @@ private:
     std::unique_ptr<Renderer> renderer;
     World world;
     bool isPaused = false;
+    bool showDebugScreen = false;
+    GameState state = GameState::LOADING;
+    float introTime = 0.0f;
+    const float introDuration = 1.0f; // Fast drop
+    float loadingProgress = 0.0f;
+
+    std::thread workerThread;
+    std::atomic<bool> running{true};
 
     void initWindow() {
         glfwInit();
@@ -57,13 +73,76 @@ private:
         RendererInitInfo initInfo{ window };
         renderer = std::make_unique<Renderer>(initInfo);
         
+        initCelestialBodies();
+
+        // Initial setup for LOADING state
+        camera.setPosition(glm::vec3(0.0f, 0.0f, 120.0f));
+        camera.setRotation(-90.0f, -89.9f);
+
+        // Start background worker
+        workerThread = std::thread(&MinecraftApp::workerLoop, this);
+
         // Initial World Gen
         updateWorld();
+        processCompletedMeshes(); 
+    }
+
+    void workerLoop() {
+        while (running) {
+            std::pair<int, int> coords;
+            bool hasWork = false;
+
+            {
+                std::lock_guard<std::mutex> lock(world.queueMutex);
+                if (!world.loadQueue.empty()) {
+                    coords = world.loadQueue.front();
+                    world.loadQueue.pop_front();
+                    hasWork = true;
+                }
+            }
+
+            if (hasWork) {
+                // 1. Generate Terrain (CPU heavy)
+                world.addChunk(coords.first, coords.second);
+
+                // 2. Generate Mesh (CPU heavy)
+                auto vertices = ChunkMesher::generateMesh(*world.getChunk(coords.first, coords.second), coords.first, coords.second, &world);
+
+                // 3. Push to results
+                {
+                    std::lock_guard<std::mutex> lock(world.queueMutex);
+                    world.buildResults.push_back({coords.first, coords.second, std::move(vertices)});
+                }
+            } else {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+        }
+    }
+
+    void initCelestialBodies() {
+        const glm::vec3 positions[36] = {
+            {-1,-1,-1}, {1,-1,-1}, {1,1,-1}, {1,1,-1}, {-1,1,-1}, {-1,-1,-1},
+            {-1,-1, 1}, {1,-1, 1}, {1,1, 1}, {1,1, 1}, {-1,1, 1}, {-1,-1, 1},
+            {-1, 1, 1}, {-1, 1,-1}, {-1,-1,-1}, {-1,-1,-1}, {-1,-1, 1}, {-1, 1, 1},
+            { 1, 1, 1}, { 1, 1,-1}, { 1,-1,-1}, { 1,-1,-1}, { 1,-1, 1}, { 1, 1, 1},
+            {-1,-1,-1}, { 1,-1,-1}, { 1,-1, 1}, { 1,-1, 1}, {-1,-1, 1}, {-1,-1,-1},
+            {-1, 1,-1}, { 1, 1,-1}, { 1, 1, 1}, { 1, 1, 1}, {-1, 1, 1}, {-1, 1,-1}
+        };
+
+        std::vector<Vertex> sunVertices;
+        glm::vec3 sunColor = {1.0f, 0.9f, 0.5f};
+        for (const auto& p : positions) sunVertices.push_back({p * 20.0f, sunColor, {0,0,0}, {0,0}});
+        world.sunMesh = renderer->createChunkMesh(sunVertices);
+
+        std::vector<Vertex> moonVertices;
+        glm::vec3 moonColor = {0.8f, 0.8f, 0.9f};
+        for (const auto& p : positions) moonVertices.push_back({p * 15.0f, moonColor, {0,0,0}, {0,0}});
+        world.moonMesh = renderer->createChunkMesh(moonVertices);
     }
 
     void mainLoop() {
         auto lastTime = std::chrono::high_resolution_clock::now();
-        float totalTime = 300.0f; // Start at 6:00 AM (Sunrise)
+        float totalTime = 0.0f;
 
         while (!glfwWindowShouldClose(window)) {
             glfwPollEvents();
@@ -73,68 +152,172 @@ private:
             lastTime = currentTime;
             totalTime += deltaTime;
 
-            if (!isPaused) {
-                camera.processInput(window, deltaTime, isPaused);
-                updateWorld();
+            renderer->beginImGui();
+
+            if (state == GameState::PLAYING) {
+                if (!isPaused) {
+                    camera.processInput(window, deltaTime, isPaused);
+                    updateWorld();
+                    processCompletedMeshes();
+                }
+            } else if (state == GameState::LOADING) {
+                loadingProgress = updateWorld();
+                processCompletedMeshes();
+                drawLoadingUI();
+                if (loadingProgress >= 1.0f) {
+                    state = GameState::INTRO_ANIMATION;
+                    introTime = 0.0f;
+                }
+            } else if (state == GameState::INTRO_ANIMATION) {
+                updateIntroAnimation(deltaTime);
+                processCompletedMeshes();
             }
 
-            static int frameCount = 0;
-            if (++frameCount % 60 == 0) {
-                Logger::log("Camera Position: (" + std::to_string(camera.pos.x) + ", " + std::to_string(camera.pos.y) + ", " + std::to_string(camera.pos.z) + ")");
-            }
-
-            // 20 minute day cycle (1200 seconds)
+            // 20 minute day cycle
             constexpr float dayLength = 1200.0f;
             float dayProgress = fmod(totalTime, dayLength) / dayLength;
             float angle = dayProgress * 2.0f * 3.14159f;
 
-            // Sun direction (rotating around Y or X)
             glm::vec3 sunDirection = glm::vec3(sin(angle), -cos(angle), 0.2f);
-            
-            // Basic sun color based on time (night is dark, dawn/dusk is orange, day is white)
-            glm::vec3 sunColor = glm::vec3(1.0f);
-            glm::vec3 skyColor = glm::vec3(0.5f, 0.7f, 0.9f); // Default midday blue
+            float dist = 500.0f;
+            world.sunPos = camera.pos + (sunDirection * -dist); 
+            world.moonPos = camera.pos + (sunDirection * dist);
 
-            float sunHeight = -sunDirection.y; // High is positive
+            glm::vec3 sunColor = glm::vec3(1.0f);
+            glm::vec3 skyColor = glm::vec3(0.5f, 0.7f, 0.9f); 
+
+            float sunHeight = -sunDirection.y; 
             if (sunHeight < 0.0f) {
-                // Night (Brighter night for visibility)
                 sunColor = glm::vec3(0.4f, 0.4f, 0.5f);
-                skyColor = glm::vec3(0.05f, 0.05f, 0.1f);
+                skyColor = glm::vec3(0.02f, 0.02f, 0.05f);
             } else if (sunHeight < 0.4f) {
-                // Dawn/Dusk (Extended and brighter)
                 float t = sunHeight / 0.4f;
                 sunColor = glm::mix(glm::vec3(1.0f, 0.6f, 0.4f), glm::vec3(1.0f, 1.0f, 1.0f), t);
                 skyColor = glm::mix(glm::vec3(0.2f, 0.1f, 0.1f), glm::vec3(0.5f, 0.7f, 0.9f), t);
             }
 
-            if (!world.meshes.empty()) {
-                renderer->drawFrame(world, camera, sunDirection, sunColor, skyColor);
+            if (showDebugScreen) {
+                ImGui::SetNextWindowPos(ImVec2(10, 10));
+                ImGui::Begin("Debug", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove);
+                ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
+                ImGui::Text("Pos: %.2f, %.2f, %.2f", camera.pos.x, camera.pos.y, camera.pos.z);
+                ImGui::Text("Chunk: %d, %d", (int)std::floor(camera.pos.x / CHUNK_WIDTH), (int)std::floor(camera.pos.y / CHUNK_WIDTH));
+                ImGui::End();
             }
+
+            renderer->drawFrame(world, camera, sunDirection, sunColor, skyColor);
         }
         renderer->waitIdle();
     }
 
-    void updateWorld() {
+    void drawLoadingUI() {
+        ImGui::SetNextWindowPos(ImVec2(0, 0));
+        ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
+        ImGui::Begin("Loading", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoInputs);
+        
+        float windowWidth = ImGui::GetIO().DisplaySize.x;
+        ImGui::SetCursorPos(ImVec2(windowWidth * 0.1f, 20));
+        ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.2f, 0.8f, 0.2f, 1.0f));
+        ImGui::ProgressBar(loadingProgress, ImVec2(windowWidth * 0.8f, 30), "");
+        ImGui::PopStyleColor();
+
+        const char* text = "GENERATING WORLD...";
+        float textWidth = ImGui::CalcTextSize(text).x;
+        ImGui::SetCursorPos(ImVec2((windowWidth - textWidth) * 0.5f, 60));
+        ImGui::Text("%s", text);
+
+        ImGui::End();
+    }
+
+    float spawnZ = 2.0f; // Default landing height
+
+    void updateIntroAnimation(float deltaTime) {
+        introTime += deltaTime;
+        float t = introTime / introDuration;
+        if (t >= 1.0f) {
+            t = 1.0f;
+            state = GameState::PLAYING;
+            // Land at calculated height
+            camera.setPosition(glm::vec3(8.0f, 8.0f, spawnZ));
+            camera.setRotation(-90.0f, 0.0f);
+            if (!isPaused) {
+                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+            }
+            return;
+        }
+
+        float smoothT = t * t * (3.0f - 2.0f * t);
+
+        float startZ = 120.0f;
+        float startPitch = -89.9f;
+        float endPitch = 0.0f;
+
+        // Calculate landing height once during intro
+        if (spawnZ == 2.0f) {
+            Chunk* c = world.getChunk(0, 0);
+            if (c) {
+                for (int z = 0; z > -CHUNK_HEIGHT; --z) {
+                    if (c->getBlock(8, 8, z).isSolid()) {
+                        spawnZ = static_cast<float>(z) + 2.0f;
+                        break;
+                    }
+                }
+            }
+        }
+
+        float curX = glm::mix(0.0f, 8.0f, smoothT);
+        float curY = glm::mix(0.0f, 8.0f, smoothT);
+        float curZ = glm::mix(startZ, spawnZ, smoothT);
+
+        camera.setPosition(glm::vec3(curX, curY, curZ));
+        camera.setRotation(-90.0f, glm::mix(startPitch, endPitch, smoothT));
+    }
+
+    float updateWorld() {
         const int playerChunkX = static_cast<int>(std::floor(camera.pos.x / CHUNK_WIDTH));
         const int playerChunkY = static_cast<int>(std::floor(camera.pos.y / CHUNK_WIDTH));
 
-        constexpr int radius = 2;
+        constexpr int radius = 4;
+        int totalChunks = (radius * 2 + 1) * (radius * 2 + 1);
+        int meshedChunks = 0;
+
         for (int x = playerChunkX - radius; x <= playerChunkX + radius; ++x) {
             for (int y = playerChunkY - radius; y <= playerChunkY + radius; ++y) {
-                if (world.chunks.find({x, y}) == world.chunks.end()) {
-                    Logger::log("Generating chunk at (" + std::to_string(x) + ", " + std::to_string(y) + ")");
-                    world.addChunk(x, y);
-                    auto vertices = ChunkMesher::generateMesh(*world.getChunk(x, y), x, y, &world);
-                    if (!vertices.empty()) {
-                        Logger::log("Meshing chunk (" + std::to_string(x) + ", " + std::to_string(y) + ") - " + std::to_string(vertices.size()) + " vertices");
-                        auto mesh = renderer->createChunkMesh(vertices);
-                        
-                        std::lock_guard<std::mutex> lock(world.meshMutex);
-                        world.meshes[{x, y}] = mesh;
-                    } else {
-                        Logger::log("Warning: Chunk at (" + std::to_string(x) + ", " + std::to_string(y) + ") produced empty mesh");
+                {
+                    std::lock_guard<std::mutex> lock(world.meshMutex);
+                    if (world.meshes.find({x, y}) != world.meshes.end()) {
+                        meshedChunks++;
+                        continue;
                     }
                 }
+
+                std::lock_guard<std::mutex> lock(world.queueMutex);
+                if (world.chunks.find({x, y}) == world.chunks.end() && 
+                    world.pendingChunks.find({x, y}) == world.pendingChunks.end()) {
+                    
+                    world.loadQueue.push_back({x, y});
+                    world.pendingChunks.insert({x, y});
+                }
+            }
+        }
+        return (float)meshedChunks / totalChunks;
+    }
+
+    void processCompletedMeshes() {
+        std::vector<ChunkBuildResult> results;
+        {
+            std::lock_guard<std::mutex> lock(world.queueMutex);
+            while (!world.buildResults.empty()) {
+                results.push_back(std::move(world.buildResults.front()));
+                world.buildResults.pop_front();
+            }
+        }
+
+        for (auto& res : results) {
+            if (!res.vertices.empty()) {
+                auto mesh = renderer->createChunkMesh(res.vertices);
+                std::lock_guard<std::mutex> lock(world.meshMutex);
+                world.meshes[{res.x, res.y}] = mesh;
             }
         }
     }
@@ -145,7 +328,14 @@ private:
     }
 
     void cleanup() {
-        if (renderer) renderer->waitIdle();
+        running = false;
+        if (workerThread.joinable()) workerThread.join();
+
+        if (renderer) {
+            renderer->waitIdle();
+            renderer->destroyChunkMesh(world.sunMesh);
+            renderer->destroyChunkMesh(world.moonMesh);
+        }
         for (auto& [pos, mesh] : world.meshes) {
             renderer->destroyChunkMesh(mesh);
         }
@@ -156,15 +346,20 @@ private:
 
     static void mouseCallback(GLFWwindow* window, double xpos, double ypos) {
         auto app = reinterpret_cast<MinecraftApp*>(glfwGetWindowUserPointer(window));
-        if (!app->isPaused) {
+        if (app->state == GameState::PLAYING && !app->isPaused) {
             app->camera.handleMouseMovement(static_cast<float>(xpos), static_cast<float>(ypos));
         }
     }
 
     static void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
         auto app = reinterpret_cast<MinecraftApp*>(glfwGetWindowUserPointer(window));
-        if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
-            app->togglePause();
+        if (app->state == GameState::PLAYING) {
+            if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
+                app->togglePause();
+            }
+            if (key == GLFW_KEY_F3 && action == GLFW_PRESS) {
+                app->showDebugScreen = !app->showDebugScreen;
+            }
         }
     }
 };

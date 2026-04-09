@@ -6,6 +6,8 @@
 #include <vector>
 #include <memory>
 #include <mutex>
+#include <deque>
+#include <set>
 
 struct ChunkMesh {
     VkBuffer vertexBuffer = VK_NULL_HANDLE;
@@ -13,11 +15,27 @@ struct ChunkMesh {
     uint32_t vertexCount = 0;
 };
 
+struct ChunkBuildResult {
+    int x, y;
+    std::vector<Vertex> vertices;
+};
+
 class World {
 public:
     std::map<std::pair<int, int>, std::unique_ptr<Chunk>> chunks;
     std::map<std::pair<int, int>, ChunkMesh> meshes;
     mutable std::mutex meshMutex;
+
+    // Async Queues
+    std::deque<std::pair<int, int>> loadQueue;
+    std::deque<ChunkBuildResult> buildResults;
+    std::set<std::pair<int, int>> pendingChunks; // Track what's already being loaded
+    std::mutex queueMutex;
+
+    glm::vec3 sunPos = glm::vec3(0.0f);
+    glm::vec3 moonPos = glm::vec3(0.0f);
+    ChunkMesh sunMesh;
+    ChunkMesh moonMesh;
 
     void addChunk(int x, int y) {
         if (chunks.find({x, y}) == chunks.end()) {
@@ -38,9 +56,9 @@ public:
         int bx = x - cx * CHUNK_WIDTH;
         int by = y - cy * CHUNK_WIDTH;
 
-        Chunk* chunk = getChunk(cx, cy);
-        if (!chunk) return false; // Air for missing chunks
-        return chunk->getBlock(bx, by, z).isSolid();
+        auto it = chunks.find({cx, cy});
+        if (it == chunks.end()) return false; // Air for missing chunks
+        return it->second->getBlock(bx, by, z).isSolid();
     }
 
 private:

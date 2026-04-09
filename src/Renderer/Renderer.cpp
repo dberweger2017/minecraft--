@@ -5,6 +5,11 @@
 #include <set>
 #include <fstream>
 #include <algorithm>
+#include <array>
+
+#include <imgui.h>
+#include <imgui_impl_glfw.h>
+#include <imgui_impl_vulkan.h>
 
 // Shader-specific path helper (we'll need to define MINECRAFT_VK_SHADER_DIR in CMake)
 static std::vector<char> readFile(const std::string& filename) {
@@ -91,6 +96,7 @@ void Renderer::initVulkan() {
     createCommandPool();
     createCommandBuffers();
     createSyncObjects();
+    initImGui();
 }
 
 void Renderer::createInstance() {
@@ -504,7 +510,13 @@ void Renderer::createSyncObjects() {
 }
 
 void Renderer::drawFrame(const World& world, const Camera& camera, glm::vec3 sunDirection, glm::vec3 sunColor, glm::vec3 skyColor) {
-    if (swapChainExtent.width == 0 || swapChainExtent.height == 0) return;
+    if (swapChainExtent.width == 0 || swapChainExtent.height == 0) {
+        if (imguiFrameBegun) {
+            ImGui::EndFrame();
+            imguiFrameBegun = false;
+        }
+        return;
+    }
 
     static int frameCount = 0;
     if (++frameCount % 60 == 0) {
@@ -517,13 +529,17 @@ void Renderer::drawFrame(const World& world, const Camera& camera, glm::vec3 sun
     
     if (result == VK_ERROR_OUT_OF_DATE_KHR) {
         recreateSwapChain();
+        if (imguiFrameBegun) {
+            ImGui::EndFrame();
+            imguiFrameBegun = false;
+        }
         return;
     }
 
     updateUniformBuffer(currentFrame, camera, sunDirection, sunColor);
     vkResetFences(device, 1, &inFlightFences[currentFrame]);
     vkResetCommandBuffer(commandBuffers[currentFrame], 0);
-    recordCommandBuffer(commandBuffers[currentFrame], imageIndex, world, skyColor);
+    recordCommandBuffer(commandBuffers[currentFrame], imageIndex, world, camera, skyColor);
 
     VkSubmitInfo submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -553,7 +569,7 @@ void Renderer::drawFrame(const World& world, const Camera& camera, glm::vec3 sun
     currentFrame = (currentFrame + 1) % kMaxFramesInFlight;
 }
 
-void Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex, const World& world, glm::vec3 skyColor) {
+void Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex, const World& world, const Camera& camera, glm::vec3 skyColor) {
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     vkBeginCommandBuffer(commandBuffer, &beginInfo);
@@ -564,7 +580,10 @@ void Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t image
     renderPassInfo.framebuffer = swapChainFramebuffers[imageIndex];
     renderPassInfo.renderArea.extent = swapChainExtent;
     std::array<VkClearValue, 2> clearValues{};
-    clearValues[0].color = {{skyColor.r, skyColor.g, skyColor.b, 1.0f}};
+    clearValues[0].color.float32[0] = skyColor.r;
+    clearValues[0].color.float32[1] = skyColor.g;
+    clearValues[0].color.float32[2] = skyColor.b;
+    clearValues[0].color.float32[3] = 1.0f;
     clearValues[1].depthStencil = {1.0f, 0};
     renderPassInfo.clearValueCount = (uint32_t)clearValues.size();
     renderPassInfo.pClearValues = clearValues.data();
@@ -593,6 +612,32 @@ void Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t image
             }
         }
     }
+
+    // Render Sun and Moon
+    ChunkMesh celestialMeshes[] = {world.sunMesh, world.moonMesh};
+    glm::vec3 celestialPositions[] = {world.sunPos, world.moonPos};
+
+    for (int i = 0; i < 2; i++) {
+        if (celestialMeshes[i].vertexBuffer != VK_NULL_HANDLE) {
+            UniformBufferObject ubo{};
+            ubo.model = glm::translate(glm::mat4(1.0f), celestialPositions[i]);
+            ubo.view = camera.getViewMatrix();
+            ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 1000.0f);
+            ubo.proj[1][1] *= -1;
+            ubo.sunDirection = glm::vec4(0,0,0,0);
+            ubo.sunColor = glm::vec4(1,1,1,1);
+            
+            // Note: In a production engine, we would use push constants or a separate UBO set for these.
+            // For now, we update the main UBO mapping which is slightly hacky but works for this stage.
+            memcpy(uniformBuffersMapped[currentFrame], &ubo, sizeof(ubo));
+
+            VkDeviceSize offsets[] = {0};
+            vkCmdBindVertexBuffers(commandBuffer, 0, 1, &celestialMeshes[i].vertexBuffer, offsets);
+            vkCmdDraw(commandBuffer, celestialMeshes[i].vertexCount, 1, 0, 0);
+        }
+    }
+
+    endImGui(commandBuffer);
 
     vkCmdEndRenderPass(commandBuffer);
     vkEndCommandBuffer(commandBuffer);
@@ -750,6 +795,14 @@ void Renderer::cleanupSwapChain() {
 
 void Renderer::cleanup() {
     cleanupSwapChain();
+
+    ImGui_ImplVulkan_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImGui::DestroyContext();
+    if (imguiDescriptorPool != VK_NULL_HANDLE) {
+        vkDestroyDescriptorPool(device, imguiDescriptorPool, nullptr);
+    }
+
     vkDestroyPipeline(device, graphicsPipeline, nullptr);
     vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
     vkDestroyRenderPass(device, renderPass, nullptr);
@@ -780,3 +833,105 @@ void Renderer::recreateSwapChain() {
 }
 
 void Renderer::waitIdle() { vkDeviceWaitIdle(device); }
+
+void Renderer::initImGui() {
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO(); (void)io;
+    ImGui::StyleColorsDark();
+
+    // Create Descriptor Pool for ImGui
+    VkDescriptorPoolSize pool_sizes[] = {
+        { VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
+        { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
+        { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
+        { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
+        { VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
+        { VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 },
+        { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
+        { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 },
+        { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
+        { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
+        { VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 }
+    };
+
+    VkDescriptorPoolCreateInfo pool_info = {};
+    pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+    pool_info.maxSets = 1000 * (uint32_t)std::size(pool_sizes);
+    pool_info.poolSizeCount = (uint32_t)std::size(pool_sizes);
+    pool_info.pPoolSizes = pool_sizes;
+
+    if (vkCreateDescriptorPool(device, &pool_info, nullptr, &imguiDescriptorPool) != VK_SUCCESS) {
+        throw std::runtime_error("failed to create imgui descriptor pool!");
+    }
+
+    ImGui_ImplGlfw_InitForVulkan(window, true);
+    ImGui_ImplVulkan_InitInfo init_info = {};
+    init_info.Instance = instance;
+    init_info.PhysicalDevice = physicalDevice;
+    init_info.Device = device;
+    QueueFamilyIndices indices = findQueueFamilies(physicalDevice, surface);
+    init_info.QueueFamily = indices.graphicsFamily.value();
+    init_info.Queue = graphicsQueue;
+    init_info.PipelineCache = VK_NULL_HANDLE;
+    init_info.DescriptorPool = imguiDescriptorPool;
+    init_info.RenderPass = renderPass;
+    init_info.Subpass = 0;
+    init_info.MinImageCount = kMaxFramesInFlight;
+    init_info.ImageCount = (uint32_t)swapChainImages.size();
+    init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+    init_info.Allocator = nullptr;
+    init_info.CheckVkResultFn = nullptr;
+    ImGui_ImplVulkan_Init(&init_info);
+
+    // Upload Fonts
+    ImGui_ImplVulkan_CreateFontsTexture();
+}
+
+void Renderer::beginImGui() {
+    if (imguiFrameBegun) return;
+    ImGui_ImplVulkan_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
+    imguiFrameBegun = true;
+}
+
+void Renderer::endImGui(VkCommandBuffer commandBuffer) {
+    if (!imguiFrameBegun) return;
+    ImGui::Render();
+    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffer);
+    imguiFrameBegun = false;
+}
+
+VkCommandBuffer Renderer::beginSingleTimeCommands() {
+    VkCommandBufferAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandPool = commandPool;
+    allocInfo.commandBufferCount = 1;
+
+    VkCommandBuffer commandBuffer;
+    vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer);
+
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+    vkBeginCommandBuffer(commandBuffer, &beginInfo);
+    return commandBuffer;
+}
+
+void Renderer::endSingleTimeCommands(VkCommandBuffer commandBuffer) {
+    vkEndCommandBuffer(commandBuffer);
+
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer;
+
+    vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
+    vkQueueWaitIdle(graphicsQueue);
+
+    vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
+}

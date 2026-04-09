@@ -25,6 +25,10 @@ public:
     void recreateSwapChain();
     void setFramebufferResized() { framebufferResized = true; }
 
+    // ImGui Integration
+    void beginImGui();
+    void endImGui(VkCommandBuffer commandBuffer);
+
     // Helper for Chunk Meshing (GPU buffer creation)
     ChunkMesh createChunkMesh(const std::vector<Vertex>& vertices);
     void destroyChunkMesh(ChunkMesh& mesh);
@@ -37,6 +41,13 @@ private:
     VkDevice device;
     VkQueue graphicsQueue;
     VkQueue presentQueue;
+
+    // ImGui
+    VkDescriptorPool imguiDescriptorPool = VK_NULL_HANDLE;
+    bool imguiFrameBegun = false;
+    void initImGui();
+    VkCommandBuffer beginSingleTimeCommands();
+    void endSingleTimeCommands(VkCommandBuffer commandBuffer);
 
     // Swap Chain
     VkSwapchainKHR swapChain;
@@ -101,9 +112,14 @@ private:
     void cleanupSwapChain();
     void cleanup();
 
+    // Celestial bodies
+    ChunkMesh sunMesh;
+    ChunkMesh moonMesh;
+    void createCelestialResources();
+
     // Helpers
     void updateUniformBuffer(uint32_t currentImage, const Camera& camera, glm::vec3 sunDirection, glm::vec3 sunColor);
-    void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex, const World& world, glm::vec3 skyColor);
+    void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex, const World& world, const Camera& camera, glm::vec3 skyColor);
     VkShaderModule createShaderModule(const std::vector<char>& code);
     uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
     VkFormat findDepthFormat();

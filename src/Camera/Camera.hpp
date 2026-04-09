@@ -13,7 +13,7 @@ public:
     glm::vec3 front = glm::vec3(1.0f, 0.0f, 0.0f);
     glm::vec3 up = glm::vec3(0.0f, 0.0f, 1.0f);
     glm::vec3 velocity = glm::vec3(0.0f);
-    float yaw = -90.0f;
+    float yaw = 0.0f;
     float pitch = 0.0f;
     float lastX = 640.0f, lastY = 360.0f;
     bool firstMouse = true;
@@ -24,9 +24,9 @@ public:
             return;
         }
 
-        const float acceleration = 50.0f;
+        const float acceleration = 200.0f;
         const float friction = 8.0f;
-        const float maxSpeed = 10.0f;
+        const float maxSpeed = 50.0f;
 
         glm::vec3 inputDir = glm::vec3(0.0f);
         if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) inputDir += front;
@@ -59,8 +59,8 @@ public:
             firstMouse = false;
         }
 
-        float xoffset = xpos - lastX;
-        float yoffset = lastY - ypos; // reversed since y-coordinates go from bottom to top
+        float xoffset = lastX - xpos; // Flipped for correct direction
+        float yoffset = lastY - ypos;
         lastX = xpos;
         lastY = ypos;
 
@@ -73,6 +73,16 @@ public:
 
         pitch = std::clamp(pitch, -89.0f, 89.0f);
 
+        updateCameraVectors();
+    }
+
+    void setPosition(glm::vec3 newPos) {
+        pos = newPos;
+    }
+
+    void setRotation(float newYaw, float newPitch) {
+        yaw = newYaw;
+        pitch = newPitch;
         updateCameraVectors();
     }
 

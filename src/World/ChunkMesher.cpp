@@ -20,41 +20,44 @@ static void addCulledCubeToMesh(const float x, const float y, const float z, con
     const float y0 = y - 0.5f, y1 = y + 0.5f;
     const float z0 = z - 0.5f, z1 = z + 0.5f;
 
+    // UVs for a face: (0,0), (1,0), (1,1), (0,1)
+    glm::vec2 uv00 = {0, 0}, uv10 = {1, 0}, uv11 = {1, 1}, uv01 = {0, 1};
+
     // Back (-Y)
     if (!neighbors[2]) {
         glm::vec3 n = {0, -1, 0};
-        vertices.push_back({{x0, y0, z0}, color, n}); vertices.push_back({{x1, y0, z0}, color, n}); vertices.push_back({{x1, y0, z1}, color, n});
-        vertices.push_back({{x1, y0, z1}, color, n}); vertices.push_back({{x0, y0, z1}, color, n}); vertices.push_back({{x0, y0, z0}, color, n});
+        vertices.push_back({{x0, y0, z0}, color, n, uv00}); vertices.push_back({{x1, y0, z0}, color, n, uv10}); vertices.push_back({{x1, y0, z1}, color, n, uv11});
+        vertices.push_back({{x1, y0, z1}, color, n, uv11}); vertices.push_back({{x0, y0, z1}, color, n, uv01}); vertices.push_back({{x0, y0, z0}, color, n, uv00});
     }
     // Front (+Y)
     if (!neighbors[3]) {
         glm::vec3 n = {0, 1, 0};
-        vertices.push_back({{x0, y1, z0}, color, n}); vertices.push_back({{x0, y1, z1}, color, n}); vertices.push_back({{x1, y1, z1}, color, n});
-        vertices.push_back({{x1, y1, z1}, color, n}); vertices.push_back({{x1, y1, z0}, color, n}); vertices.push_back({{x0, y1, z0}, color, n});
+        vertices.push_back({{x0, y1, z0}, color, n, uv00}); vertices.push_back({{x0, y1, z1}, color, n, uv01}); vertices.push_back({{x1, y1, z1}, color, n, uv11});
+        vertices.push_back({{x1, y1, z1}, color, n, uv11}); vertices.push_back({{x1, y1, z0}, color, n, uv10}); vertices.push_back({{x0, y1, z0}, color, n, uv00});
     }
     // Left (-X)
     if (!neighbors[0]) {
         glm::vec3 n = {-1, 0, 0};
-        vertices.push_back({{x0, y0, z0}, color, n}); vertices.push_back({{x0, y0, z1}, color, n}); vertices.push_back({{x0, y1, z1}, color, n});
-        vertices.push_back({{x0, y1, z1}, color, n}); vertices.push_back({{x0, y1, z0}, color, n}); vertices.push_back({{x0, y0, z0}, color, n});
+        vertices.push_back({{x0, y0, z0}, color, n, uv00}); vertices.push_back({{x0, y0, z1}, color, n, uv01}); vertices.push_back({{x0, y1, z1}, color, n, uv11});
+        vertices.push_back({{x0, y1, z1}, color, n, uv11}); vertices.push_back({{x0, y1, z0}, color, n, uv10}); vertices.push_back({{x0, y0, z0}, color, n, uv00});
     }
     // Right (+X)
     if (!neighbors[1]) {
         glm::vec3 n = {1, 0, 0};
-        vertices.push_back({{x1, y0, z0}, color, n}); vertices.push_back({{x1, y1, z0}, color, n}); vertices.push_back({{x1, y1, z1}, color, n});
-        vertices.push_back({{x1, y1, z1}, color, n}); vertices.push_back({{x1, y0, z1}, color, n}); vertices.push_back({{x1, y0, z0}, color, n});
+        vertices.push_back({{x1, y0, z0}, color, n, uv00}); vertices.push_back({{x1, y1, z0}, color, n, uv10}); vertices.push_back({{x1, y1, z1}, color, n, uv11});
+        vertices.push_back({{x1, y1, z1}, color, n, uv11}); vertices.push_back({{x1, y0, z1}, color, n, uv01}); vertices.push_back({{x1, y0, z0}, color, n, uv00});
     }
     // Bottom (-Z)
     if (!neighbors[4]) {
         glm::vec3 n = {0, 0, -1};
-        vertices.push_back({{x0, y0, z0}, color, n}); vertices.push_back({{x0, y1, z0}, color, n}); vertices.push_back({{x1, y1, z0}, color, n});
-        vertices.push_back({{x1, y1, z0}, color, n}); vertices.push_back({{x1, y0, z0}, color, n}); vertices.push_back({{x0, y0, z0}, color, n});
+        vertices.push_back({{x0, y0, z0}, color, n, uv00}); vertices.push_back({{x0, y1, z0}, color, n, uv01}); vertices.push_back({{x1, y1, z0}, color, n, uv11});
+        vertices.push_back({{x1, y1, z0}, color, n, uv11}); vertices.push_back({{x1, y0, z0}, color, n, uv10}); vertices.push_back({{x0, y0, z0}, color, n, uv00});
     }
     // Top (+Z)
     if (!neighbors[5]) {
         glm::vec3 n = {0, 0, 1};
-        vertices.push_back({{x0, y0, z1}, color, n}); vertices.push_back({{x1, y0, z1}, color, n}); vertices.push_back({{x1, y1, z1}, color, n});
-        vertices.push_back({{x1, y1, z1}, color, n}); vertices.push_back({{x0, y1, z1}, color, n}); vertices.push_back({{x0, y0, z1}, color, n});
+        vertices.push_back({{x0, y0, z1}, color, n, uv00}); vertices.push_back({{x1, y0, z1}, color, n, uv10}); vertices.push_back({{x1, y1, z1}, color, n, uv11});
+        vertices.push_back({{x1, y1, z1}, color, n, uv11}); vertices.push_back({{x0, y1, z1}, color, n, uv01}); vertices.push_back({{x0, y0, z1}, color, n, uv00});
     }
 }
 
