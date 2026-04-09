@@ -64,21 +64,45 @@ static void addCulledCubeToMesh(const float x, const float y, const float z, con
 std::vector<Vertex> generateMesh(const Chunk& chunk, int cx, int cy, World* world) {
     std::vector<Vertex> vertices;
 
+    // Fetch neighbor chunks once to avoid mutex lock contention
+    Chunk* chunkMinusX = world->getChunk(cx - 1, cy);
+    Chunk* chunkPlusX  = world->getChunk(cx + 1, cy);
+    Chunk* chunkMinusY = world->getChunk(cx, cy - 1);
+    Chunk* chunkPlusY  = world->getChunk(cx, cy + 1);
+
     for (int x = 0; x < CHUNK_WIDTH; ++x) {
         for (int y = 0; y < CHUNK_WIDTH; ++y) {
             for (int z = 0; z > -CHUNK_HEIGHT; --z) {
                 const Block block = chunk.getBlock(x, y, z);
                 if (block.isSolid()) {
+                    bool neighbors[6];
+                    
+                    // -X
+                    if (x > 0) neighbors[0] = chunk.getBlock(x - 1, y, z).isSolid();
+                    else neighbors[0] = chunkMinusX ? chunkMinusX->getBlock(CHUNK_WIDTH - 1, y, z).isSolid() : false;
+                    
+                    // +X
+                    if (x < CHUNK_WIDTH - 1) neighbors[1] = chunk.getBlock(x + 1, y, z).isSolid();
+                    else neighbors[1] = chunkPlusX ? chunkPlusX->getBlock(0, y, z).isSolid() : false;
+                    
+                    // -Y
+                    if (y > 0) neighbors[2] = chunk.getBlock(x, y - 1, z).isSolid();
+                    else neighbors[2] = chunkMinusY ? chunkMinusY->getBlock(x, CHUNK_WIDTH - 1, z).isSolid() : false;
+                    
+                    // +Y
+                    if (y < CHUNK_WIDTH - 1) neighbors[3] = chunk.getBlock(x, y + 1, z).isSolid();
+                    else neighbors[3] = chunkPlusY ? chunkPlusY->getBlock(x, 0, z).isSolid() : false;
+                    
+                    // -Z (Bottom)
+                    if (z > -CHUNK_HEIGHT + 1) neighbors[4] = chunk.getBlock(x, y, z - 1).isSolid();
+                    else neighbors[4] = false;
+                    
+                    // +Z (Top)
+                    if (z < 0) neighbors[5] = chunk.getBlock(x, y, z + 1).isSolid();
+                    else neighbors[5] = false;
+
                     int worldX = cx * CHUNK_WIDTH + x;
                     int worldY = cy * CHUNK_WIDTH + y;
-
-                    bool neighbors[6];
-                    neighbors[0] = world->isBlockSolid(worldX - 1, worldY, z);
-                    neighbors[1] = world->isBlockSolid(worldX + 1, worldY, z);
-                    neighbors[2] = world->isBlockSolid(worldX, worldY - 1, z);
-                    neighbors[3] = world->isBlockSolid(worldX, worldY + 1, z);
-                    neighbors[4] = world->isBlockSolid(worldX, worldY, z - 1);
-                    neighbors[5] = world->isBlockSolid(worldX, worldY, z + 1);
 
                     addCulledCubeToMesh(
                         static_cast<float>(worldX),

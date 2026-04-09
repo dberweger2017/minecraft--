@@ -6,6 +6,7 @@
 #include <vector>
 #include <memory>
 #include <mutex>
+#include <shared_mutex>
 #include <deque>
 #include <set>
 
@@ -23,6 +24,8 @@ struct ChunkBuildResult {
 class World {
 public:
     std::map<std::pair<int, int>, std::unique_ptr<Chunk>> chunks;
+    mutable std::shared_mutex chunkMutex;
+
     std::map<std::pair<int, int>, ChunkMesh> meshes;
     mutable std::mutex meshMutex;
 
@@ -38,13 +41,20 @@ public:
     ChunkMesh moonMesh;
 
     void addChunk(int x, int y) {
-        if (chunks.find({x, y}) == chunks.end()) {
-            chunks[{x, y}] = std::make_unique<Chunk>();
-            generateTerrain(x, y);
+        {
+            std::shared_lock<std::shared_mutex> lock(chunkMutex);
+            if (chunks.find({x, y}) != chunks.end()) return;
         }
+        
+        auto newChunk = std::make_unique<Chunk>();
+        generateTerrain(newChunk.get(), x, y);
+        
+        std::unique_lock<std::shared_mutex> lock(chunkMutex);
+        chunks[{x, y}] = std::move(newChunk);
     }
 
     Chunk* getChunk(int x, int y) {
+        std::shared_lock<std::shared_mutex> lock(chunkMutex);
         auto it = chunks.find({x, y});
         if (it != chunks.end()) return it->second.get();
         return nullptr;
@@ -56,14 +66,14 @@ public:
         int bx = x - cx * CHUNK_WIDTH;
         int by = y - cy * CHUNK_WIDTH;
 
+        std::shared_lock<std::shared_mutex> lock(chunkMutex);
         auto it = chunks.find({cx, cy});
         if (it == chunks.end()) return false; // Air for missing chunks
         return it->second->getBlock(bx, by, z).isSolid();
     }
 
 private:
-    void generateTerrain(int cx, int cy) {
-        Chunk* chunk = chunks[{cx, cy}].get();
+    void generateTerrain(Chunk* chunk, int cx, int cy) {
         for (int x = 0; x < CHUNK_WIDTH; ++x) {
             for (int y = 0; y < CHUNK_WIDTH; ++y) {
                 for (int z = 0; z > -CHUNK_HEIGHT; --z) {

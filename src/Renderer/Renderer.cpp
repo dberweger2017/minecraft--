@@ -374,14 +374,20 @@ void Renderer::createGraphicsPipeline() {
     dynamicState.dynamicStateCount = (uint32_t)dynamicStates.size();
     dynamicState.pDynamicStates = dynamicStates.data();
 
+    VkPushConstantRange pushConstantRange{};
+    pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    pushConstantRange.offset = 0;
+    pushConstantRange.size = sizeof(glm::mat4);
+
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipelineLayoutInfo.setLayoutCount = 1;
     pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
+    pipelineLayoutInfo.pushConstantRangeCount = 1;
+    pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
 
     if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS)
         throw std::runtime_error("failed to create pipeline layout!");
-
     VkGraphicsPipelineCreateInfo pipelineInfo{};
     pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
     pipelineInfo.stageCount = 2;
@@ -601,6 +607,9 @@ void Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t image
 
     vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
 
+    glm::mat4 identityMatrix = glm::mat4(1.0f);
+    vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4), &identityMatrix);
+
     {
         std::lock_guard<std::mutex> lock(world.meshMutex);
         for (auto const& [pos, mesh] : world.meshes) {
@@ -619,17 +628,8 @@ void Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t image
 
     for (int i = 0; i < 2; i++) {
         if (celestialMeshes[i].vertexBuffer != VK_NULL_HANDLE) {
-            UniformBufferObject ubo{};
-            ubo.model = glm::translate(glm::mat4(1.0f), celestialPositions[i]);
-            ubo.view = camera.getViewMatrix();
-            ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 1000.0f);
-            ubo.proj[1][1] *= -1;
-            ubo.sunDirection = glm::vec4(0,0,0,0);
-            ubo.sunColor = glm::vec4(1,1,1,1);
-            
-            // Note: In a production engine, we would use push constants or a separate UBO set for these.
-            // For now, we update the main UBO mapping which is slightly hacky but works for this stage.
-            memcpy(uniformBuffersMapped[currentFrame], &ubo, sizeof(ubo));
+            glm::mat4 modelMatrix = glm::translate(glm::mat4(1.0f), celestialPositions[i]);
+            vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4), &modelMatrix);
 
             VkDeviceSize offsets[] = {0};
             vkCmdBindVertexBuffers(commandBuffer, 0, 1, &celestialMeshes[i].vertexBuffer, offsets);

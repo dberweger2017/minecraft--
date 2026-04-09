@@ -8,6 +8,10 @@ layout(binding = 0) uniform UniformBufferObject {
     vec4 sunColor;
 } ubo;
 
+layout(push_constant) uniform PushConstants {
+    mat4 model;
+} pc;
+
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec3 inColor;
 layout(location = 2) in vec3 inNormal;
@@ -20,7 +24,7 @@ layout(location = 3) out vec3 sunCol;
 layout(location = 4) out vec2 fragUV;
 
 void main() {
-    gl_Position = ubo.proj * ubo.view * ubo.model * vec4(inPosition, 1.0);
+    gl_Position = ubo.proj * ubo.view * pc.model * vec4(inPosition, 1.0);
     fragColor = inColor;
     fragNormal = inNormal;
     sunDir = ubo.sunDirection.xyz;

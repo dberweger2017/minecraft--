@@ -46,7 +46,7 @@ private:
     const float introDuration = 1.0f; // Fast drop
     float loadingProgress = 0.0f;
 
-    std::thread workerThread;
+    std::vector<std::thread> workerThreads;
     std::atomic<bool> running{true};
 
     void initWindow() {
@@ -79,8 +79,12 @@ private:
         camera.setPosition(glm::vec3(0.0f, 0.0f, 120.0f));
         camera.setRotation(-90.0f, -89.9f);
 
-        // Start background worker
-        workerThread = std::thread(&MinecraftApp::workerLoop, this);
+        // Start background workers (using half the CPU cores)
+        unsigned int numThreads = std::thread::hardware_concurrency() / 2;
+        if (numThreads == 0) numThreads = 1; // Fallback
+        for (unsigned int i = 0; i < numThreads; ++i) {
+            workerThreads.emplace_back(&MinecraftApp::workerLoop, this);
+        }
 
         // Initial World Gen
         updateWorld();
@@ -107,6 +111,8 @@ private:
 
                 // 2. Generate Mesh (CPU heavy)
                 auto vertices = ChunkMesher::generateMesh(*world.getChunk(coords.first, coords.second), coords.first, coords.second, &world);
+                
+                Logger::log("Worker: Generated chunk " + std::to_string(coords.first) + ", " + std::to_string(coords.second) + " (World X: " + std::to_string(coords.first * CHUNK_WIDTH) + " to " + std::to_string(coords.first * CHUNK_WIDTH + 15) + ")");
 
                 // 3. Push to results
                 {
@@ -165,6 +171,7 @@ private:
                 processCompletedMeshes();
                 drawLoadingUI();
                 if (loadingProgress >= 1.0f) {
+                    Logger::log("Loading Complete. Transitioning to Intro...");
                     state = GameState::INTRO_ANIMATION;
                     introTime = 0.0f;
                 }
@@ -259,6 +266,7 @@ private:
                 for (int z = 0; z > -CHUNK_HEIGHT; --z) {
                     if (c->getBlock(8, 8, z).isSolid()) {
                         spawnZ = static_cast<float>(z) + 2.0f;
+                        Logger::log("Intro: Calculated spawnZ = " + std::to_string(spawnZ) + " based on solid block at z=" + std::to_string(z));
                         break;
                     }
                 }
@@ -271,6 +279,10 @@ private:
 
         camera.setPosition(glm::vec3(curX, curY, curZ));
         camera.setRotation(-90.0f, glm::mix(startPitch, endPitch, smoothT));
+
+        if (t >= 1.0f) {
+            Logger::log("Intro: Finished landing at " + std::to_string(curX) + ", " + std::to_string(curY) + ", " + std::to_string(curZ));
+        }
     }
 
     float updateWorld() {
@@ -280,6 +292,8 @@ private:
         constexpr int radius = 4;
         int totalChunks = (radius * 2 + 1) * (radius * 2 + 1);
         int meshedChunks = 0;
+
+        std::vector<std::pair<int, int>> newChunks;
 
         for (int x = playerChunkX - radius; x <= playerChunkX + radius; ++x) {
             for (int y = playerChunkY - radius; y <= playerChunkY + radius; ++y) {
@@ -292,14 +306,34 @@ private:
                 }
 
                 std::lock_guard<std::mutex> lock(world.queueMutex);
-                if (world.chunks.find({x, y}) == world.chunks.end() && 
-                    world.pendingChunks.find({x, y}) == world.pendingChunks.end()) {
-                    
-                    world.loadQueue.push_back({x, y});
-                    world.pendingChunks.insert({x, y});
+                if (world.pendingChunks.find({x, y}) == world.pendingChunks.end()) {
+                    bool hasChunk = false;
+                    {
+                        std::shared_lock<std::shared_mutex> chunkLock(world.chunkMutex);
+                        hasChunk = world.chunks.find({x, y}) != world.chunks.end();
+                    }
+                    if (!hasChunk) {
+                        newChunks.push_back({x, y});
+                    }
                 }
             }
         }
+
+        // Sort new chunks by distance to player
+        std::sort(newChunks.begin(), newChunks.end(), [playerChunkX, playerChunkY](const auto& a, const auto& b) {
+            int distA = (a.first - playerChunkX) * (a.first - playerChunkX) + (a.second - playerChunkY) * (a.second - playerChunkY);
+            int distB = (b.first - playerChunkX) * (b.first - playerChunkX) + (b.second - playerChunkY) * (b.second - playerChunkY);
+            return distA < distB; // Closest first
+        });
+
+        if (!newChunks.empty()) {
+            std::lock_guard<std::mutex> lock(world.queueMutex);
+            for (const auto& coords : newChunks) {
+                world.loadQueue.push_back(coords);
+                world.pendingChunks.insert(coords);
+            }
+        }
+
         return (float)meshedChunks / totalChunks;
     }
 
@@ -329,7 +363,9 @@ private:
 
     void cleanup() {
         running = false;
-        if (workerThread.joinable()) workerThread.join();
+        for (auto& t : workerThreads) {
+            if (t.joinable()) t.join();
+        }
 
         if (renderer) {
             renderer->waitIdle();
