@@ -1,6 +1,6 @@
 #version 450
 
-layout(location = 0) in vec3 fragColor;
+layout(location = 0) in vec4 fragColor;
 layout(location = 1) in vec3 fragNormal;
 layout(location = 2) in vec3 sunDir;
 layout(location = 3) in vec3 sunCol;
@@ -19,14 +19,14 @@ void main() {
     float diff = max(dot(norm, lightDir), 0.0);
     vec3 diffuse = diff * sunCol;
 
-    vec3 baseColor = (ambient + diffuse) * fragColor;
+    vec4 baseColor = vec4(ambient + diffuse, 1.0) * fragColor;
 
     // Draw a black outline based on UV coordinates
     float thickness = 0.05;
     if (fragUV.x < thickness || fragUV.x > (1.0 - thickness) ||
         fragUV.y < thickness || fragUV.y > (1.0 - thickness)) {
-        baseColor *= 0.0; // Black border
+        baseColor.rgb *= 0.0; // Black border
     }
 
-    outColor = vec4(baseColor, 1.0);
+    outColor = baseColor;
 }

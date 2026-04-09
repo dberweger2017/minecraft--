@@ -11,6 +11,7 @@
 
 #include "World/World.hpp"
 #include "World/ChunkMesher.hpp"
+#include "Server/ServerWorld.hpp"
 #include "Camera/Camera.hpp"
 #include "Renderer/Renderer.hpp"
 #include "Core/Logger.hpp"
@@ -49,6 +50,10 @@ private:
     std::vector<std::thread> workerThreads;
     std::atomic<bool> running{true};
 
+    Network::ThreadSafeQueue<Network::ClientMessage> clientToServerQueue;
+    Network::ThreadSafeQueue<Network::ServerMessage> serverToClientQueue;
+    std::unique_ptr<ServerWorld> server;
+
     void initWindow() {
         glfwInit();
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -75,6 +80,9 @@ private:
         
         initCelestialBodies();
 
+        server = std::make_unique<ServerWorld>(clientToServerQueue, serverToClientQueue);
+        server->start();
+
         // Initial setup for LOADING state
         camera.setPosition(glm::vec3(0.0f, 0.0f, 120.0f));
         camera.setRotation(-90.0f, -89.9f);
@@ -87,7 +95,7 @@ private:
         }
 
         // Initial World Gen
-        updateWorld();
+        updateWorld(8);
         processCompletedMeshes(); 
     }
 
@@ -106,13 +114,10 @@ private:
             }
 
             if (hasWork) {
-                // 1. Generate Terrain (CPU heavy)
-                world.addChunk(coords.first, coords.second);
-
                 // 2. Generate Mesh (CPU heavy)
                 auto vertices = ChunkMesher::generateMesh(*world.getChunk(coords.first, coords.second), coords.first, coords.second, &world);
                 
-                Logger::log("Worker: Generated chunk " + std::to_string(coords.first) + ", " + std::to_string(coords.second) + " (World X: " + std::to_string(coords.first * CHUNK_WIDTH) + " to " + std::to_string(coords.first * CHUNK_WIDTH + 15) + ")");
+                Logger::log("Worker: Meshed chunk " + std::to_string(coords.first) + ", " + std::to_string(coords.second));
 
                 // 3. Push to results
                 {
@@ -136,14 +141,27 @@ private:
         };
 
         std::vector<Vertex> sunVertices;
-        glm::vec3 sunColor = {1.0f, 0.9f, 0.5f};
+        glm::vec4 sunColor = {1.0f, 0.9f, 0.5f, 1.0f};
         for (const auto& p : positions) sunVertices.push_back({p * 20.0f, sunColor, {0,0,0}, {0,0}});
         world.sunMesh = renderer->createChunkMesh(sunVertices);
 
         std::vector<Vertex> moonVertices;
-        glm::vec3 moonColor = {0.8f, 0.8f, 0.9f};
+        glm::vec4 moonColor = {0.8f, 0.8f, 0.9f, 1.0f};
         for (const auto& p : positions) moonVertices.push_back({p * 15.0f, moonColor, {0,0,0}, {0,0}});
         world.moonMesh = renderer->createChunkMesh(moonVertices);
+    }
+
+    void processServerMessages() {
+        while (auto msgOpt = serverToClientQueue.try_pop()) {
+            auto& msg = msgOpt.value();
+            if (std::holds_alternative<Network::ChunkSnapshot>(msg)) {
+                auto& snapshot = std::get<Network::ChunkSnapshot>(msg);
+                world.receiveSnapshot(snapshot.cx, snapshot.cy, std::move(snapshot.chunkData));
+                
+                std::lock_guard<std::mutex> lock(world.queueMutex);
+                world.loadQueue.push_back({snapshot.cx, snapshot.cy});
+            }
+        }
     }
 
     void mainLoop() {
@@ -152,6 +170,7 @@ private:
 
         while (!glfwWindowShouldClose(window)) {
             glfwPollEvents();
+            processServerMessages();
 
             auto currentTime = std::chrono::high_resolution_clock::now();
             float deltaTime = std::chrono::duration<float>(currentTime - lastTime).count();
@@ -166,8 +185,15 @@ private:
                     updateWorld();
                     processCompletedMeshes();
                 }
+
+                ImGui::SetNextWindowPos(ImVec2(10, 10));
+                ImGui::SetNextWindowBgAlpha(0.3f);
+                ImGui::Begin("Overlay", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove);
+                ImGui::Text("X: %.1f Y: %.1f Z: %.1f", camera.pos.x, camera.pos.y, camera.pos.z);
+                ImGui::Text("FPS: %.1f / 60.0", ImGui::GetIO().Framerate);
+                ImGui::End();
             } else if (state == GameState::LOADING) {
-                loadingProgress = updateWorld();
+                loadingProgress = updateWorld(8);
                 processCompletedMeshes();
                 drawLoadingUI();
                 if (loadingProgress >= 1.0f) {
@@ -285,11 +311,10 @@ private:
         }
     }
 
-    float updateWorld() {
+    float updateWorld(int radius = 4) {
         const int playerChunkX = static_cast<int>(std::floor(camera.pos.x / CHUNK_WIDTH));
         const int playerChunkY = static_cast<int>(std::floor(camera.pos.y / CHUNK_WIDTH));
 
-        constexpr int radius = 4;
         int totalChunks = (radius * 2 + 1) * (radius * 2 + 1);
         int meshedChunks = 0;
 
@@ -329,7 +354,7 @@ private:
         if (!newChunks.empty()) {
             std::lock_guard<std::mutex> lock(world.queueMutex);
             for (const auto& coords : newChunks) {
-                world.loadQueue.push_back(coords);
+                clientToServerQueue.push(Network::ChunkRequest{coords.first, coords.second});
                 world.pendingChunks.insert(coords);
             }
         }
@@ -365,6 +390,10 @@ private:
         running = false;
         for (auto& t : workerThreads) {
             if (t.joinable()) t.join();
+        }
+
+        if (server) {
+            server->stop();
         }
 
         if (renderer) {

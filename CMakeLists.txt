@@ -157,6 +157,7 @@ add_executable(minecraft_vk
   src/main.cpp
   src/World/ChunkMesher.cpp
   src/Renderer/Renderer.cpp
+  src/Server/ServerWorld.cpp
 )
 
 add_dependencies(minecraft_vk compile_shaders)

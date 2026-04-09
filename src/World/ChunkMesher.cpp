@@ -5,15 +5,17 @@
 namespace ChunkMesher {
 
 static void addCulledCubeToMesh(const float x, const float y, const float z, const BlockType type, const bool neighbors[6], std::vector<Vertex>& vertices) {
-    glm::vec3 color = glm::vec3(1.0f);
+    glm::vec4 color = glm::vec4(1.0f);
     if (type == BlockType::Grass) {
-        color = glm::vec3(0.13f, 0.55f, 0.13f);
+        color = glm::vec4(0.13f, 0.55f, 0.13f, 1.0f);
     } else if (type == BlockType::Dirt) {
-        color = glm::vec3(0.55f, 0.27f, 0.07f);
+        color = glm::vec4(0.55f, 0.27f, 0.07f, 1.0f);
     } else if (type == BlockType::Stone) {
-        color = glm::vec3(0.5f, 0.5f, 0.5f);
+        color = glm::vec4(0.5f, 0.5f, 0.5f, 1.0f);
     } else if (type == BlockType::Bedrock) {
-        color = glm::vec3(0.1f, 0.1f, 0.1f);
+        color = glm::vec4(0.1f, 0.1f, 0.1f, 1.0f);
+    } else if (type == BlockType::Water) {
+        color = glm::vec4(0.2f, 0.4f, 0.8f, 0.5f);
     }
 
     const float x0 = x - 0.5f, x1 = x + 0.5f;
@@ -70,36 +72,42 @@ std::vector<Vertex> generateMesh(const Chunk& chunk, int cx, int cy, World* worl
     Chunk* chunkMinusY = world->getChunk(cx, cy - 1);
     Chunk* chunkPlusY  = world->getChunk(cx, cy + 1);
 
+    auto shouldCull = [](BlockType current, BlockType neighbor) {
+        if (neighbor != BlockType::Air && neighbor != BlockType::Water) return true;
+        if (current == BlockType::Water && neighbor == BlockType::Water) return true;
+        return false;
+    };
+
     for (int x = 0; x < CHUNK_WIDTH; ++x) {
         for (int y = 0; y < CHUNK_WIDTH; ++y) {
             for (int z = 0; z > -CHUNK_HEIGHT; --z) {
                 const Block block = chunk.getBlock(x, y, z);
-                if (block.isSolid()) {
+                if (block.type != BlockType::Air) {
                     bool neighbors[6];
                     
                     // -X
-                    if (x > 0) neighbors[0] = chunk.getBlock(x - 1, y, z).isSolid();
-                    else neighbors[0] = chunkMinusX ? chunkMinusX->getBlock(CHUNK_WIDTH - 1, y, z).isSolid() : false;
+                    BlockType n0 = (x > 0) ? chunk.getBlock(x - 1, y, z).type : (chunkMinusX ? chunkMinusX->getBlock(CHUNK_WIDTH - 1, y, z).type : BlockType::Stone);
+                    neighbors[0] = shouldCull(block.type, n0);
                     
                     // +X
-                    if (x < CHUNK_WIDTH - 1) neighbors[1] = chunk.getBlock(x + 1, y, z).isSolid();
-                    else neighbors[1] = chunkPlusX ? chunkPlusX->getBlock(0, y, z).isSolid() : false;
+                    BlockType n1 = (x < CHUNK_WIDTH - 1) ? chunk.getBlock(x + 1, y, z).type : (chunkPlusX ? chunkPlusX->getBlock(0, y, z).type : BlockType::Stone);
+                    neighbors[1] = shouldCull(block.type, n1);
                     
                     // -Y
-                    if (y > 0) neighbors[2] = chunk.getBlock(x, y - 1, z).isSolid();
-                    else neighbors[2] = chunkMinusY ? chunkMinusY->getBlock(x, CHUNK_WIDTH - 1, z).isSolid() : false;
+                    BlockType n2 = (y > 0) ? chunk.getBlock(x, y - 1, z).type : (chunkMinusY ? chunkMinusY->getBlock(x, CHUNK_WIDTH - 1, z).type : BlockType::Stone);
+                    neighbors[2] = shouldCull(block.type, n2);
                     
                     // +Y
-                    if (y < CHUNK_WIDTH - 1) neighbors[3] = chunk.getBlock(x, y + 1, z).isSolid();
-                    else neighbors[3] = chunkPlusY ? chunkPlusY->getBlock(x, 0, z).isSolid() : false;
+                    BlockType n3 = (y < CHUNK_WIDTH - 1) ? chunk.getBlock(x, y + 1, z).type : (chunkPlusY ? chunkPlusY->getBlock(x, 0, z).type : BlockType::Stone);
+                    neighbors[3] = shouldCull(block.type, n3);
                     
                     // -Z (Bottom)
-                    if (z > -CHUNK_HEIGHT + 1) neighbors[4] = chunk.getBlock(x, y, z - 1).isSolid();
-                    else neighbors[4] = false;
+                    BlockType n4 = (z > -CHUNK_HEIGHT + 1) ? chunk.getBlock(x, y, z - 1).type : BlockType::Air;
+                    neighbors[4] = shouldCull(block.type, n4);
                     
                     // +Z (Top)
-                    if (z < 0) neighbors[5] = chunk.getBlock(x, y, z + 1).isSolid();
-                    else neighbors[5] = false;
+                    BlockType n5 = (z < 0) ? chunk.getBlock(x, y, z + 1).type : BlockType::Air;
+                    neighbors[5] = shouldCull(block.type, n5);
 
                     int worldX = cx * CHUNK_WIDTH + x;
                     int worldY = cy * CHUNK_WIDTH + y;

@@ -40,17 +40,9 @@ public:
     ChunkMesh sunMesh;
     ChunkMesh moonMesh;
 
-    void addChunk(int x, int y) {
-        {
-            std::shared_lock<std::shared_mutex> lock(chunkMutex);
-            if (chunks.find({x, y}) != chunks.end()) return;
-        }
-        
-        auto newChunk = std::make_unique<Chunk>();
-        generateTerrain(newChunk.get(), x, y);
-        
+    void receiveSnapshot(int x, int y, std::unique_ptr<Chunk> chunkData) {
         std::unique_lock<std::shared_mutex> lock(chunkMutex);
-        chunks[{x, y}] = std::move(newChunk);
+        chunks[{x, y}] = std::move(chunkData);
     }
 
     Chunk* getChunk(int x, int y) {
@@ -60,7 +52,7 @@ public:
         return nullptr;
     }
 
-    bool isBlockSolid(int x, int y, int z) {
+    BlockType getBlockType(int x, int y, int z) {
         int cx = std::floor((float)x / CHUNK_WIDTH);
         int cy = std::floor((float)y / CHUNK_WIDTH);
         int bx = x - cx * CHUNK_WIDTH;
@@ -68,23 +60,9 @@ public:
 
         std::shared_lock<std::shared_mutex> lock(chunkMutex);
         auto it = chunks.find({cx, cy});
-        if (it == chunks.end()) return false; // Air for missing chunks
-        return it->second->getBlock(bx, by, z).isSolid();
+        if (it == chunks.end()) return BlockType::Air; // Air for missing chunks
+        return it->second->getBlock(bx, by, z).type;
     }
 
 private:
-    void generateTerrain(Chunk* chunk, int cx, int cy) {
-        for (int x = 0; x < CHUNK_WIDTH; ++x) {
-            for (int y = 0; y < CHUNK_WIDTH; ++y) {
-                for (int z = 0; z > -CHUNK_HEIGHT; --z) {
-                    BlockType type = BlockType::Air;
-                    if (z == 0) type = BlockType::Grass;
-                    else if (z > -4) type = BlockType::Dirt;
-                    else if (z > -511) type = BlockType::Stone;
-                    else if (z == -511) type = BlockType::Bedrock;
-                    chunk->setBlock(x, y, z, type);
-                }
-            }
-        }
-    }
 };

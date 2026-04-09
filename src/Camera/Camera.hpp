@@ -24,15 +24,20 @@ public:
             return;
         }
 
-        const float acceleration = 200.0f;
+        bool isSprinting = glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS;
+        const float acceleration = isSprinting ? 1000.0f : 200.0f;
         const float friction = 8.0f;
-        const float maxSpeed = 50.0f;
+        const float maxSpeed = isSprinting ? 250.0f : 50.0f;
+
+        glm::vec3 forwardFlat = glm::vec3(front.x, front.y, 0.0f);
+        if (glm::length(forwardFlat) > 0.001f) forwardFlat = glm::normalize(forwardFlat);
+        glm::vec3 rightFlat = glm::normalize(glm::cross(forwardFlat, up));
 
         glm::vec3 inputDir = glm::vec3(0.0f);
-        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) inputDir += front;
-        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) inputDir -= front;
-        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) inputDir -= glm::normalize(glm::cross(front, up));
-        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) inputDir += glm::normalize(glm::cross(front, up));
+        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) inputDir += forwardFlat;
+        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) inputDir -= forwardFlat;
+        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) inputDir -= rightFlat;
+        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) inputDir += rightFlat;
         if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) inputDir += up;
         if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) inputDir -= up;
 
