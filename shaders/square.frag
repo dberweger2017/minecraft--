@@ -9,7 +9,7 @@ layout(location = 0) out vec4 outColor;
 
 void main() {
     // Ambient light
-    float ambientStrength = 0.3;
+    float ambientStrength = 0.6;
     vec3 ambient = ambientStrength * sunCol;
 
     // Diffuse light

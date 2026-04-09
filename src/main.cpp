@@ -97,14 +97,14 @@ private:
 
             float sunHeight = -sunDirection.y; // High is positive
             if (sunHeight < 0.0f) {
-                // Night
-                sunColor = glm::vec3(0.1f, 0.1f, 0.2f);
-                skyColor = glm::vec3(0.02f, 0.02f, 0.05f);
-            } else if (sunHeight < 0.2f) {
-                // Dawn/Dusk
-                float t = sunHeight / 0.2f;
-                sunColor = glm::mix(glm::vec3(1.0f, 0.4f, 0.2f), glm::vec3(1.0f, 1.0f, 1.0f), t);
-                skyColor = glm::mix(glm::vec3(0.1f, 0.05f, 0.05f), glm::vec3(0.5f, 0.7f, 0.9f), t);
+                // Night (Brighter night for visibility)
+                sunColor = glm::vec3(0.4f, 0.4f, 0.5f);
+                skyColor = glm::vec3(0.05f, 0.05f, 0.1f);
+            } else if (sunHeight < 0.4f) {
+                // Dawn/Dusk (Extended and brighter)
+                float t = sunHeight / 0.4f;
+                sunColor = glm::mix(glm::vec3(1.0f, 0.6f, 0.4f), glm::vec3(1.0f, 1.0f, 1.0f), t);
+                skyColor = glm::mix(glm::vec3(0.2f, 0.1f, 0.1f), glm::vec3(0.5f, 0.7f, 0.9f), t);
             }
 
             if (!world.meshes.empty()) {
