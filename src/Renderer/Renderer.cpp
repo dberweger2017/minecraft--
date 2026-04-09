@@ -506,6 +506,8 @@ void Renderer::createSyncObjects() {
 }
 
 void Renderer::drawFrame(const World& world, const Camera& camera, glm::vec3 sunDirection, glm::vec3 sunColor) {
+    if (swapChainExtent.width == 0 || swapChainExtent.height == 0) return;
+
     static int frameCount = 0;
     if (++frameCount % 60 == 0) {
         Logger::log("Rendering " + std::to_string(world.meshes.size()) + " chunk meshes");
@@ -582,12 +584,15 @@ void Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t image
 
     vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
 
-    for (auto const& [pos, mesh] : world.meshes) {
-        if (mesh.vertexBuffer != VK_NULL_HANDLE) {
-            VkBuffer vertexBuffers[] = {mesh.vertexBuffer};
-            VkDeviceSize offsets[] = {0};
-            vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-            vkCmdDraw(commandBuffer, mesh.vertexCount, 1, 0, 0);
+    {
+        std::lock_guard<std::mutex> lock(world.meshMutex);
+        for (auto const& [pos, mesh] : world.meshes) {
+            if (mesh.vertexBuffer != VK_NULL_HANDLE) {
+                VkBuffer vertexBuffers[] = {mesh.vertexBuffer};
+                VkDeviceSize offsets[] = {0};
+                vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+                vkCmdDraw(commandBuffer, mesh.vertexCount, 1, 0, 0);
+            }
         }
     }
 

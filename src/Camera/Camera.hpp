@@ -13,7 +13,7 @@ public:
     glm::vec3 front = glm::vec3(1.0f, 0.0f, 0.0f);
     glm::vec3 up = glm::vec3(0.0f, 0.0f, 1.0f);
     glm::vec3 velocity = glm::vec3(0.0f);
-    float yaw = 0.0f;
+    float yaw = -90.0f;
     float pitch = 0.0f;
     float lastX = 640.0f, lastY = 360.0f;
     bool firstMouse = true;
@@ -59,8 +59,8 @@ public:
             firstMouse = false;
         }
 
-        float xoffset = lastX - xpos;
-        float yoffset = lastY - ypos;
+        float xoffset = xpos - lastX;
+        float yoffset = lastY - ypos; // reversed since y-coordinates go from bottom to top
         lastX = xpos;
         lastY = ypos;
 

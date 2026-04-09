@@ -5,6 +5,7 @@
 #include <map>
 #include <vector>
 #include <memory>
+#include <mutex>
 
 struct ChunkMesh {
     VkBuffer vertexBuffer = VK_NULL_HANDLE;
@@ -16,6 +17,7 @@ class World {
 public:
     std::map<std::pair<int, int>, std::unique_ptr<Chunk>> chunks;
     std::map<std::pair<int, int>, ChunkMesh> meshes;
+    mutable std::mutex meshMutex;
 
     void addChunk(int x, int y) {
         if (chunks.find({x, y}) == chunks.end()) {
@@ -28,6 +30,17 @@ public:
         auto it = chunks.find({x, y});
         if (it != chunks.end()) return it->second.get();
         return nullptr;
+    }
+
+    bool isBlockSolid(int x, int y, int z) {
+        int cx = std::floor((float)x / CHUNK_WIDTH);
+        int cy = std::floor((float)y / CHUNK_WIDTH);
+        int bx = x - cx * CHUNK_WIDTH;
+        int by = y - cy * CHUNK_WIDTH;
+
+        Chunk* chunk = getChunk(cx, cy);
+        if (!chunk) return false; // Air for missing chunks
+        return chunk->getBlock(bx, by, z).isSolid();
     }
 
 private:

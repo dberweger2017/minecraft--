@@ -19,6 +19,7 @@
 
 class MinecraftApp {
 public:
+    Camera camera;
     void run() {
         initWindow();
         initApp();
@@ -30,7 +31,6 @@ private:
     GLFWwindow* window;
     std::unique_ptr<Renderer> renderer;
     World world;
-    Camera camera;
     bool isPaused = false;
 
     void initWindow() {
@@ -95,7 +95,9 @@ private:
                 sunColor = glm::mix(glm::vec3(1.0f, 0.4f, 0.2f), glm::vec3(1.0f, 1.0f, 1.0f), t);
             }
 
-            renderer->drawFrame(world, camera, sunDirection, sunColor);
+            if (!world.meshes.empty()) {
+                renderer->drawFrame(world, camera, sunDirection, sunColor);
+            }
         }
         renderer->waitIdle();
     }
@@ -104,16 +106,19 @@ private:
         const int playerChunkX = static_cast<int>(std::floor(camera.pos.x / CHUNK_WIDTH));
         const int playerChunkY = static_cast<int>(std::floor(camera.pos.y / CHUNK_WIDTH));
 
-        constexpr int radius = 4; // Reduced slightly for stable refactor testing
+        constexpr int radius = 2;
         for (int x = playerChunkX - radius; x <= playerChunkX + radius; ++x) {
             for (int y = playerChunkY - radius; y <= playerChunkY + radius; ++y) {
                 if (world.chunks.find({x, y}) == world.chunks.end()) {
                     Logger::log("Generating chunk at (" + std::to_string(x) + ", " + std::to_string(y) + ")");
                     world.addChunk(x, y);
-                    auto vertices = ChunkMesher::generateMesh(*world.getChunk(x, y), x, y);
+                    auto vertices = ChunkMesher::generateMesh(*world.getChunk(x, y), x, y, &world);
                     if (!vertices.empty()) {
                         Logger::log("Meshing chunk (" + std::to_string(x) + ", " + std::to_string(y) + ") - " + std::to_string(vertices.size()) + " vertices");
-                        world.meshes[{x, y}] = renderer->createChunkMesh(vertices);
+                        auto mesh = renderer->createChunkMesh(vertices);
+                        
+                        std::lock_guard<std::mutex> lock(world.meshMutex);
+                        world.meshes[{x, y}] = mesh;
                     } else {
                         Logger::log("Warning: Chunk at (" + std::to_string(x) + ", " + std::to_string(y) + ") produced empty mesh");
                     }
@@ -128,6 +133,7 @@ private:
     }
 
     void cleanup() {
+        if (renderer) renderer->waitIdle();
         for (auto& [pos, mesh] : world.meshes) {
             renderer->destroyChunkMesh(mesh);
         }

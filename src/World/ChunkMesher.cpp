@@ -1,4 +1,5 @@
 #include "ChunkMesher.hpp"
+#include "World.hpp"
 #include <glm/glm.hpp>
 
 namespace ChunkMesher {
@@ -19,8 +20,6 @@ static void addCulledCubeToMesh(const float x, const float y, const float z, con
     const float y0 = y - 0.5f, y1 = y + 0.5f;
     const float z0 = z - 0.5f, z1 = z + 0.5f;
 
-    // Neighbors order: 0:-X, 1:+X, 2:-Y, 3:+Y, 4:-Z, 5:+Z
-    
     // Back (-Y)
     if (!neighbors[2]) {
         glm::vec3 n = {0, -1, 0};
@@ -59,7 +58,7 @@ static void addCulledCubeToMesh(const float x, const float y, const float z, con
     }
 }
 
-std::vector<Vertex> generateMesh(const Chunk& chunk, int cx, int cy) {
+std::vector<Vertex> generateMesh(const Chunk& chunk, int cx, int cy, World* world) {
     std::vector<Vertex> vertices;
 
     for (int x = 0; x < CHUNK_WIDTH; ++x) {
@@ -67,17 +66,20 @@ std::vector<Vertex> generateMesh(const Chunk& chunk, int cx, int cy) {
             for (int z = 0; z > -CHUNK_HEIGHT; --z) {
                 const Block block = chunk.getBlock(x, y, z);
                 if (block.isSolid()) {
+                    int worldX = cx * CHUNK_WIDTH + x;
+                    int worldY = cy * CHUNK_WIDTH + y;
+
                     bool neighbors[6];
-                    neighbors[0] = chunk.getBlock(x - 1, y, z).isSolid();
-                    neighbors[1] = chunk.getBlock(x + 1, y, z).isSolid();
-                    neighbors[2] = chunk.getBlock(x, y - 1, z).isSolid();
-                    neighbors[3] = chunk.getBlock(x, y + 1, z).isSolid();
-                    neighbors[4] = chunk.getBlock(x, y, z - 1).isSolid();
-                    neighbors[5] = chunk.getBlock(x, y, z + 1).isSolid();
+                    neighbors[0] = world->isBlockSolid(worldX - 1, worldY, z);
+                    neighbors[1] = world->isBlockSolid(worldX + 1, worldY, z);
+                    neighbors[2] = world->isBlockSolid(worldX, worldY - 1, z);
+                    neighbors[3] = world->isBlockSolid(worldX, worldY + 1, z);
+                    neighbors[4] = world->isBlockSolid(worldX, worldY, z - 1);
+                    neighbors[5] = world->isBlockSolid(worldX, worldY, z + 1);
 
                     addCulledCubeToMesh(
-                        static_cast<float>(cx * CHUNK_WIDTH + x),
-                        static_cast<float>(cy * CHUNK_WIDTH + y),
+                        static_cast<float>(worldX),
+                        static_cast<float>(worldY),
                         static_cast<float>(z),
                         block.type, neighbors, vertices);
                 }
