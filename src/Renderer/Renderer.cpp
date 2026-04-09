@@ -66,8 +66,6 @@ Renderer::Renderer(const RendererInitInfo& info) : window(info.window) {
     commandPool = VK_NULL_HANDLE;
     descriptorPool = VK_NULL_HANDLE;
 
-    glfwSetWindowUserPointer(window, this);
-    glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
     initVulkan();
 }
 
@@ -782,8 +780,3 @@ void Renderer::recreateSwapChain() {
 }
 
 void Renderer::waitIdle() { vkDeviceWaitIdle(device); }
-
-void Renderer::framebufferResizeCallback(GLFWwindow* window, int width, int height) {
-    auto app = reinterpret_cast<Renderer*>(glfwGetWindowUserPointer(window));
-    app->framebufferResized = true;
-}

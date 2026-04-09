@@ -23,6 +23,7 @@ public:
     void drawFrame(const World& world, const Camera& camera, glm::vec3 sunDirection, glm::vec3 sunColor);
     void waitIdle();
     void recreateSwapChain();
+    void setFramebufferResized() { framebufferResized = true; }
 
     // Helper for Chunk Meshing (GPU buffer creation)
     ChunkMesh createChunkMesh(const std::vector<Vertex>& vertices);

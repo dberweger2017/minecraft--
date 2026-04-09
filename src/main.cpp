@@ -40,9 +40,17 @@ private:
         glfwSetWindowUserPointer(window, this);
         
         // Input Callbacks
+        glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
         glfwSetCursorPosCallback(window, mouseCallback);
         glfwSetKeyCallback(window, keyCallback);
         glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    }
+
+    static void framebufferResizeCallback(GLFWwindow* window, int width, int height) {
+        auto app = reinterpret_cast<MinecraftApp*>(glfwGetWindowUserPointer(window));
+        if (app && app->renderer) {
+            app->renderer->setFramebufferResized();
+        }
     }
 
     void initApp() {
